@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { allocateWalletAuthMethodId, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
 import {
   addSignerIntentGrantFromString,
@@ -109,6 +109,7 @@ function registrationIntent(): RegistrationIntentV1 {
   return {
     version: 'registration_intent_v1',
     walletId: WALLET_ID,
+    foundingWalletAuthMethodId: allocateWalletAuthMethodId('yao-add-signer-intent'),
     authMethod: { kind: 'passkey', rpId: webAuthnRpId('wallet.local') },
     signerSelection: {
       kind: 'signer_set',

@@ -28,6 +28,7 @@ import { collectDeployedBenchmark } from './run_deployed_benchmark.mjs';
 import {
   bindPrebuiltArtifact,
   buildDeploymentPlan,
+  deploymentFeature,
   parseWhoamiAccountIds,
   renderDeploymentConfigs,
 } from './plan_cloudflare_benchmark.mjs';
@@ -133,6 +134,13 @@ function oneAccountEnvironment() {
   environment.YAOS_AB_B_SCRIPT_NAME = 'ed25519-yao-ab-benchmark-b';
   delete environment.YAOS_AB_B_HOSTNAME;
   delete environment.YAOS_AB_B_WEBSOCKET_ENDPOINT;
+  return environment;
+}
+
+function oneAccountWorkersDevEnvironment() {
+  const environment = oneAccountEnvironment();
+  environment.YAOS_AB_A_PUBLIC_ENDPOINT =
+    'https://ed25519-yao-ab-benchmark-a.fixture-account.workers.dev/benchmark/activation';
   return environment;
 }
 
@@ -695,6 +703,17 @@ function testEnvironmentBoundaries() {
   assert.equal(one.expectedTopologyLabel, 'same-account-service-binding-websocket');
   assert.equal(one.b.publicEndpoint, undefined);
 
+  const workersDev = parseDeploymentEnvironment(oneAccountWorkersDevEnvironment());
+  assert.deepEqual(workersDev.a.publicRoute, {
+    kind: 'workers-dev',
+    accountSubdomain: 'fixture-account',
+  });
+
+  const wrongWorkersDevScript = oneAccountWorkersDevEnvironment();
+  wrongWorkersDevScript.YAOS_AB_A_PUBLIC_ENDPOINT =
+    'https://other-worker.fixture-account.workers.dev/benchmark/activation';
+  assertEnvironmentRejected(wrongWorkersDevScript);
+
   const equalAccounts = twoAccountEnvironment();
   equalAccounts.YAOS_AB_B_ACCOUNT_ID = equalAccounts.YAOS_AB_A_ACCOUNT_ID;
   assertEnvironmentRejected(equalAccounts);
@@ -1079,17 +1098,38 @@ function testDeploymentPlan() {
 
   const one = parseDeploymentEnvironment(oneAccountEnvironment());
   const oneConfigs = renderDeploymentConfigs(one);
+  assert.equal(deploymentFeature(one, 'a'), 'deriver-a-same-account-websocket');
+  assert.equal(deploymentFeature(one, 'b'), 'deriver-b-same-account-websocket');
+  assert.equal(deploymentFeature(two, 'a'), 'deriver-a-cross-account');
+  assert.equal(deploymentFeature(two, 'b'), 'deriver-b-cross-account');
   assert.equal(oneConfigs.a.services[0].service, one.b.scriptName);
   assert.equal(oneConfigs.b.routes, undefined);
+
+  const workersDev = parseDeploymentEnvironment(oneAccountWorkersDevEnvironment());
+  const workersDevConfigs = renderDeploymentConfigs(workersDev);
+  assert.equal(workersDevConfigs.a.workers_dev, true);
+  assert.equal(workersDevConfigs.a.routes, undefined);
+  assert.equal(workersDevConfigs.b.workers_dev, false);
 }
 
 function testCheckedInExamplesAreNonExecuting() {
-  for (const name of ['one-account.env.example', 'two-account.env.example']) {
+  for (const name of [
+    'one-account.env.example',
+    'two-account.env.example',
+    'r120-one-account.env.example',
+    'r120-two-account.env.example',
+  ]) {
     const environment = envExample(name);
     assert.notEqual(environment.YAOS_AB_CONFIRM_NON_PRODUCTION, 'YES');
     assert.notEqual(environment.YAOS_AB_CONFIRM_NO_AUTH_CLAIM, 'YES');
     assert.notEqual(environment.YAOS_AB_CONFIRM_DELETE_BENCHMARK, 'YES');
   }
+  const r120One = parseDeploymentEnvironment(envExample('r120-one-account.env.example'));
+  const r120Two = parseDeploymentEnvironment(envExample('r120-two-account.env.example'));
+  assert.equal(r120One.sampleCount, 101);
+  assert.equal(r120One.expectedTopologyLabel, 'same-account-service-binding-websocket');
+  assert.equal(r120Two.sampleCount, 101);
+  assert.equal(r120Two.expectedTopologyLabel, 'cross-account-websocket');
   assertCostEnvironmentRejected(envExample('cost.env.example'));
 }
 
@@ -1172,10 +1212,7 @@ function testPhase13aEvaluator() {
   assert.throws(evaluateMissingRawSamples, EvidenceError);
   assert.throws(evaluateMissingFirstResponseBodyByte, EvidenceError);
   assert.throws(evaluateWrongOtRoundCount, EvidenceError);
-  assertEvidenceErrorCode(
-    evaluateForgedTableStreamDuration,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
-  );
+  assertEvidenceErrorCode(evaluateForgedTableStreamDuration, 'PHASE13A_REPORT_IDENTITY_MISMATCH');
   assertEvidenceErrorCode(evaluateForgedTransportBytes, 'PHASE13A_RAW_SAMPLE_WIRE_PROFILE');
   assertEvidenceErrorCode(evaluateTablePayloadDrift, 'PHASE13A_RAW_SAMPLE_WIRE_PROFILE');
   assert.throws(evaluateMissingCost, EvidenceError);
@@ -1192,35 +1229,17 @@ function testPhase13aEvaluator() {
     evaluatePredeploymentBenchmarkWindow,
     'PHASE13A_MEASUREMENT_PREDEPLOYMENT',
   );
-  assertEvidenceErrorCode(
-    evaluateForgedMemoryP999Gate,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
-  );
-  assertEvidenceErrorCode(
-    evaluateForgedExceededMemoryGate,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
-  );
-  assertEvidenceErrorCode(
-    evaluateMissingMemoryClassification,
-    'PHASE13A_REPORT_IDENTITY_MISMATCH',
-  );
+  assertEvidenceErrorCode(evaluateForgedMemoryP999Gate, 'PHASE13A_REPORT_IDENTITY_MISMATCH');
+  assertEvidenceErrorCode(evaluateForgedExceededMemoryGate, 'PHASE13A_REPORT_IDENTITY_MISMATCH');
+  assertEvidenceErrorCode(evaluateMissingMemoryClassification, 'PHASE13A_REPORT_IDENTITY_MISMATCH');
   assertEvidenceErrorCode(evaluateExactPeakClaim, 'PHASE13A_REPORT_IDENTITY_MISMATCH');
   assertEvidenceErrorCode(
     evaluateInventedPlatformCopyAccounting,
     'PHASE13A_REPORT_IDENTITY_MISMATCH',
   );
-  assertEvidenceErrorCode(
-    evaluateStaleLocalReadinessBundle,
-    'PHASE13A_DEPLOYMENT_IDENTITY',
-  );
-  assertEvidenceErrorCode(
-    evaluateCrossAccountCommitmentEquality,
-    'PHASE13A_DEPLOYMENT_IDENTITY',
-  );
-  assertEvidenceErrorCode(
-    evaluateCrossAccountHostnameEquality,
-    'PHASE13A_DEPLOYMENT_IDENTITY',
-  );
+  assertEvidenceErrorCode(evaluateStaleLocalReadinessBundle, 'PHASE13A_DEPLOYMENT_IDENTITY');
+  assertEvidenceErrorCode(evaluateCrossAccountCommitmentEquality, 'PHASE13A_DEPLOYMENT_IDENTITY');
+  assertEvidenceErrorCode(evaluateCrossAccountHostnameEquality, 'PHASE13A_DEPLOYMENT_IDENTITY');
 }
 
 function testPhase13aCliEvidenceIncomplete() {

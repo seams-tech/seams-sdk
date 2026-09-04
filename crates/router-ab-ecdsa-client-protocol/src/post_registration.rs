@@ -629,8 +629,8 @@ impl EcdsaPostRegistrationHeaderV1 {
         push_bytes(
             &mut context,
             self.input
-                .public_identity
-                .threshold_public_key33_b64u()
+                .context
+                .application_binding_digest_b64u()
                 .as_bytes(),
         );
         push_bytes(
@@ -705,8 +705,8 @@ impl EcdsaPostRegistrationHeaderV1 {
         push_bytes(
             &mut output,
             self.input
-                .public_identity
-                .threshold_public_key33_b64u()
+                .context
+                .application_binding_digest_b64u()
                 .as_bytes(),
         );
         push_bytes(&mut output, self.input.router_id.as_bytes());

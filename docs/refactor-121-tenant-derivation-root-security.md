@@ -1124,6 +1124,31 @@ Before production implementation:
 - [ ] Stop if a browser, console service, Router, or one CLI invocation must hold
       both decrypted recovery shares.
 
+Native cryptographic preparation status on August 30, 2026:
+
+- [x] Freeze the canonical tenant recovery descriptor, separate `SEAMSRB1` A/B
+      packages, signed public manifest, MIME types, parser caps, and deterministic
+      Rust digests.
+- [x] Freeze recipient proof of control as an HPKE-encrypted one-use challenge
+      with exact tenant, lineage, role, actor, revision, and expiry binding plus
+      constant-time HMAC-SHA-256 confirmation verification.
+- [x] Freeze verified one-role source-package opening and destination resealing
+      into a canonical `SEAMSRI1` import envelope. The import AAD binds both
+      source artifact digests, the stable and role commitments, destination
+      fingerprint and lineage, restore session, role, import key, and expiry.
+- [x] Require the destination to supply the exact pre-authorized import
+      expectation when opening an envelope. Decoded envelope metadata cannot
+      create that capability, and raw packages cannot return secret shares
+      without a trusted signed manifest.
+- [x] Prove role substitution, recipient substitution, malformed and
+      noncanonical X25519 field-element aliases, ciphertext mutation, trailing
+      bytes, zero shares, and commitment mismatch fail closed in native Rust
+      tests. Sealing consumes caller-supplied cryptographic RNGs and retains no
+      deterministic seed state in the production API.
+- [ ] Generate standalone certificate-chain and trust-snapshot fixtures, the
+      encrypted local-key format, CLI/file-system vectors, and the complete
+      lifecycle/capability state types before network or UI implementation.
+
 ### Boundary inventory
 
 | Area                       | Current modules to classify                                                                                                                                                                   |

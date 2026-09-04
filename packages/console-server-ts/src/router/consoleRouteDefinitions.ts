@@ -113,6 +113,8 @@ const PROJECTS_MANAGE_ROUTES: readonly ConsoleRouteTuple[] = [
   ['console_environments_create', 'POST', '/console/environments'],
   ['console_environments_update', 'PATCH', '/console/environments/:id'],
   ['console_environments_archive', 'POST', '/console/environments/:id/archive'],
+  ['console_tenant_root_create', 'POST', '/console/tenant-root/creation'],
+  ['console_tenant_root_refresh', 'POST', '/console/tenant-root/refresh'],
   [
     'console_organization_project_member_access_set',
     'PUT',

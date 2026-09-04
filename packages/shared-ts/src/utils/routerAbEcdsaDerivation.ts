@@ -216,12 +216,19 @@ export type RouterAbEcdsaClientProofBundleV1 = {
   payloadB64u: string;
 };
 
+export type RouterAbEcdsaClientProofBundlePairV1 = {
+  signerA: RouterAbEcdsaClientProofBundleV1;
+  signerB: RouterAbEcdsaClientProofBundleV1;
+};
+
 export type RouterAbEcdsaClientProofFinalizationV1 = {
   kind: 'finalize_encrypted_client_proof_bundles_v1';
-  bundles: {
-    signerA: RouterAbEcdsaClientProofBundleV1;
-    signerB: RouterAbEcdsaClientProofBundleV1;
-  };
+  bundles: RouterAbEcdsaClientProofBundlePairV1;
+};
+
+export type RouterAbEcdsaStableClientProofFinalizationV2 = {
+  kind: 'finalize_encrypted_client_proof_bundles_v2';
+  bundles: RouterAbEcdsaClientProofBundlePairV1;
 };
 
 export type RouterAbEcdsaRegistrationPublicIdentityV1 = {
@@ -244,7 +251,7 @@ export type RouterAbEcdsaVerifiedClientActivationFactsV1 = {
 export type RouterAbEcdsaStrictForwardedRegistrationResponseV1 = {
   result: 'forwarded';
   response: {
-    bundles: RouterAbEcdsaClientProofFinalizationV1['bundles'];
+    bundles: RouterAbEcdsaClientProofBundlePairV1;
   };
 };
 

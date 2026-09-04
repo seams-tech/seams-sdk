@@ -47,7 +47,10 @@ import {
   type MpcMaterialActivationRef,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseExactAdministeredSignerManifestV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
-import type { ExactAdministeredEcdsaSignerV1 } from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
+import type {
+  ExactAdministeredEcdsaSignerV1,
+  ExactAdministeredEd25519SignerV1,
+} from '../../../packages/shared-ts/src/device-linking/delegatedActivationPlan';
 import {
   parseActiveWalletSessionV1,
   parseWalletSessionOperationCredentialV1,
@@ -195,6 +198,10 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
   readonly expiresAtMs?: number;
   readonly tenantId?: string;
   readonly principalId?: string;
+  readonly ed25519Signer?: Pick<
+    ExactAdministeredEd25519SignerV1,
+    'walletKeyId' | 'registeredPublicKeyB64u'
+  >;
   readonly ecdsaSigner?: Pick<
     ExactAdministeredEcdsaSignerV1,
     'walletKeyId' | 'thresholdPublicKey33B64u' | 'evmAddress'
@@ -216,8 +223,11 @@ export async function buildLinkedDeviceManagementAuthorityFixture(input: {
               kind: 'exact_administered_ed25519_signer_v1',
               keyFamily: 'ed25519',
               walletId: String(walletId),
-              walletKeyId: `wallet-key:management-${input.label}`,
-              registeredPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(34)),
+              walletKeyId:
+                input.ed25519Signer?.walletKeyId ?? `wallet-key:management-${input.label}`,
+              registeredPublicKeyB64u:
+                input.ed25519Signer?.registeredPublicKeyB64u ??
+                base64UrlEncode(new Uint8Array(32).fill(34)),
             },
           ],
         })

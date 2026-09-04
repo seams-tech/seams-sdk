@@ -8,10 +8,7 @@ import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import {
-  parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
-} from '@shared/utils/domainIds';
+import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -73,6 +70,7 @@ import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
 import {
   buildActivatedEcdsaFamilyBootstrap,
   ecdsaStrictRegistrationAuthority,
@@ -618,6 +616,7 @@ export class CloudflareD1WalletAddSignerService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  private readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
   private readonly getWalletStore: WalletStoreProvider;
   private readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
   private readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
@@ -628,6 +627,7 @@ export class CloudflareD1WalletAddSignerService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+    readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
     readonly getWalletStore: WalletStoreProvider;
     readonly walletAuthMethods: CloudflareD1WalletAuthMethodService;
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
@@ -637,6 +637,7 @@ export class CloudflareD1WalletAddSignerService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
+    this.tenantRootCustodyLineage = input.tenantRootCustodyLineage;
     this.getWalletStore = input.getWalletStore;
     this.walletAuthMethods = input.walletAuthMethods;
     this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
@@ -796,9 +797,7 @@ export class CloudflareD1WalletAddSignerService {
       };
     }
     const rpId = parseWebAuthnRpId(input.ceremony.auth.rpId);
-    const credentialId = parseWebAuthnCredentialIdB64u(
-      input.ceremony.auth.credentialIdB64u,
-    );
+    const credentialId = parseWebAuthnCredentialIdB64u(input.ceremony.auth.credentialIdB64u);
     if (!rpId.ok || !credentialId.ok) {
       return {
         ok: false,
@@ -1111,8 +1110,31 @@ export class CloudflareD1WalletAddSignerService {
           message: 'ECDSA add-signer request does not match the admitted ceremony facts',
         };
       }
-      const registered = await this.ecdsaStrictRegistration.register({
+      const runtimePolicyScope = parseD1RuntimePolicyScope(ceremony.intent.runtimePolicyScope);
+      if (!runtimePolicyScope) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA add-signer has no authoritative tenant-root scope',
+        };
+      }
+      const tenantRoot = await this.tenantRootCustodyLineage.resolveActiveLineage({
+        orgId: runtimePolicyScope.orgId,
+        projectId: runtimePolicyScope.projectId,
+        envId: runtimePolicyScope.envId,
+        signingRootId: ceremony.signingRootId,
+        signingRootVersion: ceremony.signingRootVersion,
+      });
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA add-signer tenant root is not active',
+        };
+      }
+      const registered = await this.ecdsaStrictRegistration.registerWithTenantRoot({
         request: request.ecdsa.strictRegistration,
+        tenantRoot,
         requestPolicy: {
           policyVersion: WALLET_ADD_SIGNER_ROUTER_POLICY_VERSION,
           requestDigestB64u: request.ecdsa.requestDigestB64u,

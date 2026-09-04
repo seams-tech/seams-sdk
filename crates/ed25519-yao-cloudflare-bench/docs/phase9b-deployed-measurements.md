@@ -22,6 +22,13 @@ shell without committing real account IDs or tokens. The parser requires:
 - an absolute `YAOS_AB_DEPLOYMENT_RECEIPT_PATH` ending in `.json`. Use a
   different path for each topology.
 
+Public endpoints may use either a custom domain or the account's
+`workers.dev` namespace. A `workers.dev` hostname must be exactly
+`<benchmark-script-name>.<account-subdomain>.workers.dev`; the boundary rejects
+aliases and mismatched Worker names. Rendered configs enable `workers_dev` for
+that branch and omit custom-domain routes. Custom-domain inputs retain the
+existing `workers_dev = false` route.
+
 The plan and reports omit account IDs. Analytics tokens are read only from
 `CLOUDFLARE_ANALYTICS_TOKEN_A` and `CLOUDFLARE_ANALYTICS_TOKEN_B`, excluded
 from child processes, and never included in output.
@@ -157,6 +164,70 @@ invocation statuses. It requires the classification
 `cloudflare-reservoir-sampled-shared-isolate-operational-proxy`, fixes
 `exact_peak_proven = false`, and records platform-copy accounting as
 unavailable. A forged derived gate cannot override the raw evidence.
+
+## R120 architecture-selection measurements
+
+Start from `../deployment-env/r120-one-account.env.example` and
+`../deployment-env/r120-two-account.env.example`. They freeze the 101-observation
+cohort, exact Worker names, `workers.dev` endpoint shape, receipt path, and the
+three output paths for each topology. Their deployment acknowledgements remain
+inert placeholders.
+
+R120 reuses the same deployment receipt and account boundaries. Its deployed
+latency campaign sets `YAOS_AB_SAMPLE_COUNT=101` and
+`YAOS_AB_R120_CAMPAIGN=paired-latency`, then runs `npm run bench:r120` with no
+positional arguments. The runner derives the endpoint and topology from the
+validated environment, binds every response to the receipt deployment ID, and
+interleaves the current and candidate profiles for each ceremony.
+
+Workers invocation analytics aggregate by script and time window; they do not
+separate the request header that selects the R120 profile. Resource evidence
+therefore uses `resource-current` and `resource-candidate` campaigns in
+exclusive, non-overlapping windows against the same deployment. No other
+request may enter either Worker during those windows. Set
+`YAOS_AB_R120_RESOURCE_CAMPAIGN_PATH` to the resulting raw campaign and run
+`npm run analytics:r120` after the analytics dataset has incorporated it.
+Request counts must equal 303 per role: 101 observations for each of the three
+ceremonies.
+
+The benchmark configs fix a 300 ms CPU limit. Selection requires candidate
+per-role CPU p95 at or below 150 ms and no more than 5 ms above current. Memory
+uses the strongest available sampled proxy: candidate P999 may increase by at
+most 10%, both profiles must remain strictly below 96 MiB, and any
+`exceededMemory` status fails. WebSocket messages must remain at or below 24
+MiB against the 32 MiB platform limit. HTTP-triggered Workers have no finite
+wall-duration limit while the client remains connected, so duration headroom
+is recorded as inapplicable rather than inventing a denominator.
+
+The first observation remains separately visible. Neither the Fetch API nor
+`workersInvocationsAdaptive` identifies whether an invocation created a fresh
+isolate, so the evidence does not claim a cold-start incidence. The paired
+first-observation delta is descriptive and is not an acceptance gate.
+
+After both topologies have one paired latency report and two profile-specific
+resource reports, run `npm run phase0:r120:check-inputs`. This read-only
+preflight requires six distinct JSON files, hashes them, and checks their
+topology/profile identities. It applies no performance gate. Then
+`npm run phase0:r120:evaluate` recomputes the latency report from raw samples,
+verifies deployment equality and non-overlapping resource windows, and emits a
+canonical approval-payload SHA-256 digest. Passing output is
+`ready-for-release-signature`, with `selection_ready = false`.
+
+The release authority signs outside the benchmark harness. Set the absolute
+paths to the selection candidate, externally pinned authority policy, and
+returned signed-selection artifact, then verify them offline:
+
+```sh
+export YAOS_AB_R120_SELECTION_CANDIDATE=/absolute/r120-selection-candidate.json
+export YAOS_AB_R120_RELEASE_AUTHORITY_POLICY=/absolute/r120-release-authority-policy.json
+export YAOS_AB_R120_SIGNED_SELECTION=/absolute/r120-signed-selection.json
+npm run phase0:r120:verify > r120-architecture-selection.json
+```
+
+The verifier recomputes the approval digest, enforces the rollback floor and
+exact authority/key epoch, verifies the Ed25519 signature, and binds the raw
+SHA-256 hashes of all three input artifacts. This is the only tooling path that
+emits `selection_ready = true`.
 
 ## Cost model
 

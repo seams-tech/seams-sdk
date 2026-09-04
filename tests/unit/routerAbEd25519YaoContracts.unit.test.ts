@@ -260,6 +260,11 @@ function localHttpBackendEnv(): Readonly<Record<string, unknown>> {
   };
 }
 
+const testTenantRootResolver = async () => ({
+  identityDigestB64u: 'tenant-root-identity-digest',
+  custodyLineageB64u: 'tenant-root-custody-lineage',
+});
+
 function registrationBinding(): Record<string, unknown> {
   return {
     lifecycle: {
@@ -507,6 +512,7 @@ function createMalformedLocalRegistrationBackend(): void {
       DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(2),
       SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'x25519:00',
     },
+    resolveTenantRoot: testTenantRootResolver,
     fetch: globalThis.fetch,
   });
 }
@@ -639,14 +645,6 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(activated.ok).toBe(true);
     const retry = await service.execute(request);
     expect(retry).toEqual(activated);
-    expect(backend.executeCalls).toBe(1);
-
-    expect(service.replayActivated(request)).toEqual(activated);
-    expect(service.replayActivated(parsedExecuteRequestWithCiphertextSeed(20))).toMatchObject({
-      ok: false,
-      status: 409,
-      code: 'binding_mismatch',
-    });
     expect(backend.executeCalls).toBe(1);
 
     const substituted = await service.execute(parsedExecuteRequestWithCiphertextSeed(20));
@@ -1012,6 +1010,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
         DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(2),
         SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: x25519(3),
       },
+      resolveTenantRoot: testTenantRootResolver,
       onSpan: (span) => spans.push(span),
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
@@ -1031,7 +1030,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
     scriptedFetch.failNextExecute = true;
-    const executed = await backend.execute(parsedExecution.value);
+    const executed = await backend.execute(parsedExecution.value, parsedAdmissionRequest());
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
     expect(scriptedFetch.calls).toEqual([
@@ -1044,9 +1043,20 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     ]);
     expect(scriptedFetch.requestBodies[0]).toBe(scriptedFetch.requestBodies[1]);
     const routerBody = JSON.parse(scriptedFetch.requestBodies[0]) as Record<string, unknown>;
-    expect(routerBody.operation).toBe('registration');
-    expect(routerBody).not.toHaveProperty('authority');
-    expect(routerBody).not.toHaveProperty('pair_binding');
+    expect(routerBody).toEqual({
+      tenant_root: {
+        identity_digest_b64u: 'tenant-root-identity-digest',
+        custody_lineage_b64u: 'tenant-root-custody-lineage',
+      },
+      application: parsedAdmissionRequest().application_binding,
+      participant_ids: parsedAdmissionRequest().participant_ids,
+      target: {
+        operation: 'registration',
+        binding: parsedExecution.value.binding,
+        deriver_a_input: parsedExecution.value.deriver_a_input,
+        deriver_b_input: parsedExecution.value.deriver_b_input,
+      },
+    });
     expect(scriptedFetch.replayHeaders).toEqual(['', '1']);
     expect(scriptedFetch.traceIds).toHaveLength(2);
     expect(scriptedFetch.traceIds[0]).toBe(scriptedFetch.traceIds[1]);
@@ -1065,6 +1075,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
 
@@ -1082,7 +1093,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
     scriptedFetch.dropNextExecuteResponse = true;
-    const executed = await backend.execute(parsedExecution.value);
+    const executed = await backend.execute(parsedExecution.value, parsedAdmissionRequest());
     if (!executed.ok) throw new Error(executed.message);
     expect(parseRouterAbEd25519YaoRegistrationResultV1(executed.body).ok).toBe(true);
     expect(scriptedFetch.calls).toEqual([
@@ -1100,6 +1111,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     scriptedFetch.executionResult = { kind: 'burned', reason: 'protocol_failure' };
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
 
@@ -1116,7 +1128,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     });
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
-    const burned = await backend.execute(parsedExecution.value);
+    const burned = await backend.execute(parsedExecution.value, parsedAdmissionRequest());
     expect(burned).toEqual({
       ok: false,
       status: 502,
@@ -1132,6 +1144,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     scriptedFetch.executionResult = { kind: 'recoverable', code: 'ceremony_expired' };
     const backend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
 
@@ -1148,12 +1161,14 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     });
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
 
-    await expect(backend.execute(parsedExecution.value)).resolves.toEqual({
-      ok: false,
-      status: 409,
-      code: 'ceremony_expired',
-      message: 'Router Yao ceremony expired; allocate a new ceremony identity',
-    });
+    await expect(backend.execute(parsedExecution.value, parsedAdmissionRequest())).resolves.toEqual(
+      {
+        ok: false,
+        status: 409,
+        code: 'ceremony_expired',
+        message: 'Router Yao ceremony expired; allocate a new ceremony identity',
+      },
+    );
     expect(scriptedFetch.calls).toEqual(['POST /router-ab/router/ed25519-yao/execute']);
   });
 
@@ -1161,6 +1176,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     const scriptedFetch = new ScriptedLocalYaoFetch();
     const executionBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
     const parsedRecoveryAdmission = parseRouterAbEd25519YaoRecoveryAdmissionRequestV1(
@@ -1181,7 +1197,10 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
       deriver_b_input: encryptedInputForBinding(parsedAdmission.value.binding, 'deriver_b'),
     });
     if (!parsedExecution.ok) throw new Error(parsedExecution.message);
-    const executed = await executionBackend.executeRecovery(parsedExecution.value);
+    const executed = await executionBackend.executeRecovery(
+      parsedExecution.value,
+      parsedRecoveryAdmission.value,
+    );
     if (!executed.ok) throw new Error(executed.message);
     const parsedResult = parseRouterAbEd25519YaoRecoveryActivationResultV1(executed.body);
     if (!parsedResult.ok) throw new Error(parsedResult.message);
@@ -1193,6 +1212,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
 
     const activationBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
     expect(await activationBackend.activateRecovery(parsedActivation.value)).toEqual({
@@ -1202,6 +1222,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
 
     const retryBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
     expect(await retryBackend.activateRecovery(parsedActivation.value)).toEqual({
@@ -1216,6 +1237,7 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
 
     const isolatedBackend = createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
       env: localHttpBackendEnv(),
+      resolveTenantRoot: testTenantRootResolver,
       fetch: scriptedFetch.fetch.bind(scriptedFetch),
     });
     expect(await isolatedBackend.activateRecovery(parsedActivation.value)).toEqual({

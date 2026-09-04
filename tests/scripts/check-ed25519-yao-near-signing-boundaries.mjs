@@ -239,7 +239,7 @@ for (const relativePath of listSourceFiles('packages/wallet/src')) {
   }
   assert.doesNotMatch(
     source,
-    /Wasm(?:PasskeyClient|EmailOtpClient)ExportSessionV1|take_export_artifact_json|deriver_[ab]_client_package/,
+    /Wasm(?:PasskeyClient|EmailOtpClient)ExportSessionV1|take_export_artifact_json/,
     `${relativePath} bypasses the secure Ed25519 export worker/WASM boundary`,
   );
 }

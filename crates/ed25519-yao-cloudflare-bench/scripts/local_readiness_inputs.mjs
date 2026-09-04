@@ -37,7 +37,6 @@ const INPUT_ROOTS = Object.freeze([
   'tests/unit',
   'tests/tsconfig.playwright.json',
   'tests/yaos-local-test-slice.json',
-  'tests/yaos-local',
   'tools/ed25519-yao-generator',
   'tools/ed25519-yao-verifier',
 ]);

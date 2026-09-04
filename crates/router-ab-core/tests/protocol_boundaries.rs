@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::SigningKey;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
@@ -50,6 +51,10 @@ use threshold_prf::{
 
 fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
+}
+
+fn application_binding_digest_b64u() -> String {
+    Base64UrlUnpadded::encode_string(&[0x42; 32])
 }
 
 struct TestRecipientProofBundleEncryptor;
@@ -156,7 +161,7 @@ fn signer_set() -> SignerSetV1 {
 fn transcript_metadata() -> RouterTranscriptMetadataV1 {
     RouterTranscriptMetadataV1::new(
         "near-testnet",
-        "ed25519:11111111111111111111111111111111",
+        application_binding_digest_b64u(),
         "router",
         "client-1",
         "x25519:client-ephemeral-public-key",
@@ -231,7 +236,7 @@ fn mpc_context() -> DerivationContext {
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            application_binding_digest_b64u(),
         )
         .expect("account scope"),
         root_epoch(),
@@ -332,7 +337,7 @@ fn ecdsa_threshold_prf_request_with_valid_transcript() -> EcdsaThresholdPrfReque
         lifecycle,
         signer_set,
         "near-testnet",
-        "ed25519:11111111111111111111111111111111",
+        application_binding_digest_b64u(),
         "router",
         "client-1",
         "x25519:client-ephemeral-public-key",

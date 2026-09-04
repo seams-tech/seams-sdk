@@ -55,6 +55,14 @@
               "kind": "named",
               "name": "staging"
             }
+          },
+          "tenantRootControlPlane": {
+            "workerName": "router-ab-tenant-root-control-plane-staging",
+            "configPath": "crates/router-ab-cloudflare/wrangler.tenant-root-control-plane.toml",
+            "deploymentEnvironment": {
+              "kind": "named",
+              "name": "staging"
+            }
           }
         },
         "capabilities": {
@@ -265,6 +273,14 @@
               "kind": "named",
               "name": "production-testnet"
             }
+          },
+          "tenantRootControlPlane": {
+            "workerName": "router-ab-tenant-root-control-plane-testnet",
+            "configPath": "crates/router-ab-cloudflare/wrangler.tenant-root-control-plane.toml",
+            "deploymentEnvironment": {
+              "kind": "named",
+              "name": "production-testnet"
+            }
           }
         },
         "capabilities": {
@@ -454,6 +470,13 @@
           "signingWorker": {
             "workerName": "router-ab-signing-worker",
             "configPath": "crates/router-ab-cloudflare/wrangler.signing-worker.toml",
+            "deploymentEnvironment": {
+              "kind": "default"
+            }
+          },
+          "tenantRootControlPlane": {
+            "workerName": "router-ab-tenant-root-control-plane",
+            "configPath": "crates/router-ab-cloudflare/wrangler.tenant-root-control-plane.toml",
             "deploymentEnvironment": {
               "kind": "default"
             }

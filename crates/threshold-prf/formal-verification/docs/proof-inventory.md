@@ -1,6 +1,6 @@
 # `threshold-prf` Formal Verification Proof Inventory
 
-Last updated: June 13, 2026
+Last updated: August 30, 2026
 
 This inventory tracks the active crate-local formal-verification surface for the
 configurable `t-of-N` threshold-prf API.
@@ -35,6 +35,8 @@ Implemented in
   - commitment/partial share-ID mismatch is rejected
   - commitment share IDs outside the selected policy are rejected
 - representative abstract reconstruction claims for `2-of-N` and `3-of-N`
+- R120 two-party refresh continuity over the exact Ristretto scalar modulus:
+  `root(A + rhoA + rhoB, B + 2*(rhoA + rhoB)) = root(A, B)`
 
 Remaining trust:
 
@@ -57,6 +59,9 @@ and the production crate tests:
 - DLEQ verified-combine output parity for generated valid proof bundles
 - DLEQ malformed proof, wrong-context, duplicate-bundle, and
   commitment/partial share-ID mismatch rejection in production Rust tests
+- exact Ristretto scalar-order parity with `curve25519-dalek`
+- exact Deriver A weight `1`, Deriver B weight `2`, both-source contribution
+  inclusion, refreshed-share bytes, and public-root continuity
 
 ## Lean Proof Surface
 

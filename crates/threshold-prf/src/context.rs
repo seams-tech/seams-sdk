@@ -9,6 +9,10 @@ pub enum PrfPurpose {
     RouterAbXClientBaseV1,
     /// Router/A/B server-base output.
     RouterAbXServerBaseV1,
+    /// Deriver A's Ed25519 Yao server-contribution root.
+    Ed25519DeriverAContributionRoot,
+    /// Deriver B's Ed25519 Yao server-contribution root.
+    Ed25519DeriverBContributionRoot,
 }
 
 /// Purpose-specific threshold PRF output encoding.
@@ -27,6 +31,12 @@ impl PrfPurpose {
             Self::RouterAbEcdsaDerivationYServer => b"router-ab-ecdsa-derivation/y-server/v1",
             Self::RouterAbXClientBaseV1 => b"router-ab/x_client_base/v1",
             Self::RouterAbXServerBaseV1 => b"router-ab/x_server_base/v1",
+            Self::Ed25519DeriverAContributionRoot => {
+                b"router-ab-ed25519-yao/deriver-a-contribution-root/v1"
+            }
+            Self::Ed25519DeriverBContributionRoot => {
+                b"router-ab-ed25519-yao/deriver-b-contribution-root/v1"
+            }
         }
     }
 
@@ -34,6 +44,9 @@ impl PrfPurpose {
     pub fn output_encoding(&self) -> PrfOutputEncoding {
         match self {
             Self::RouterAbEcdsaDerivationYServer => PrfOutputEncoding::Raw32,
+            Self::Ed25519DeriverAContributionRoot | Self::Ed25519DeriverBContributionRoot => {
+                PrfOutputEncoding::Raw32
+            }
             Self::RouterAbXClientBaseV1 | Self::RouterAbXServerBaseV1 => {
                 PrfOutputEncoding::CanonicalEd25519Scalar32
             }

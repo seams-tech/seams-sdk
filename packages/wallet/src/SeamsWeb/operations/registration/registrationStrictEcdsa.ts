@@ -384,7 +384,7 @@ export async function runStrictEcdsaFamilyCeremony(args: {
           bootstrapOwner: 'wallet_custody',
           ceremonyId,
           clientProofFinalization: {
-            kind: 'finalize_encrypted_client_proof_bundles_v1',
+            kind: 'finalize_encrypted_client_proof_bundles_v2',
             bundles: forwarded.ecdsa.strictResult.response.bundles,
           },
         },

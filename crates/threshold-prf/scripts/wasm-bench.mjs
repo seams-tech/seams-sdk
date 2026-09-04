@@ -10,6 +10,13 @@ const benchCrateDir = join(crateDir, "wasm-bench");
 const pkgDir = join(benchCrateDir, "pkg");
 const resultsDir = join(crateDir, "target", "wasm-bench");
 const resultsPath = join(resultsDir, "results.json");
+const r120VerifierNames = Object.freeze([
+  "verify_r120_share_refresh_vector",
+  "verify_r120_tenant_root_creation_vector",
+  "verify_r120_ecdsa_refresh_invariance_vector",
+  "verify_r120_ed25519_role_target_vector",
+  "verify_r120_tenant_root_outer_protocol_vector",
+]);
 
 run("wasm-pack", [
   "build",
@@ -23,6 +30,7 @@ run("wasm-pack", [
 
 const wasmModule = await import(pathToFileURL(join(pkgDir, "threshold_prf_wasm_bench.js")));
 const wasm = wasmModule.default?.benchmark_one_runtime_2_of_3 ? wasmModule.default : wasmModule;
+assertR120WasmEvidence(wasm);
 
 const benches = [
   {
@@ -102,6 +110,25 @@ function run(command, args) {
   }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
+  }
+}
+
+function assertR120WasmEvidence(wasmBindings) {
+  for (const verifierName of r120VerifierNames) {
+    const verifier = wasmBindings[verifierName];
+    if (typeof verifier !== "function") {
+      throw new Error(`WASM runtime evidence missing export: ${verifierName}`);
+    }
+
+    let result;
+    try {
+      result = verifier();
+    } catch {
+      throw new Error(`WASM runtime evidence threw while running: ${verifierName}`);
+    }
+    if (result !== true) {
+      throw new Error(`WASM runtime evidence failed: ${verifierName} returned ${String(result)}`);
+    }
   }
 }
 

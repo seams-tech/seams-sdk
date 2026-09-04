@@ -25,7 +25,9 @@ use signer_core::ecdsa_role_local_client::{
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::client_proof_verifier::finalize_encrypted_client_proof_output_v1;
+use crate::client_proof_verifier::{
+    finalize_encrypted_client_proof_output_v1, finalize_encrypted_client_proof_output_v2,
+};
 use crate::encoders::base64_url_encode;
 
 /// Rust-owned client ceremony whose X25519 private key never crosses WASM.
@@ -35,6 +37,7 @@ pub struct RouterAbEcdsaClientCeremonyV1 {
     registration_binding: Option<RegistrationBindingV1>,
     explicit_export_request_digest: Option<[u8; 32]>,
     activation_refresh_request_digest: Option<[u8; 32]>,
+    post_registration_application_binding_digest: Option<[u8; 32]>,
 }
 
 #[wasm_bindgen]
@@ -50,6 +53,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
             registration_binding: None,
             explicit_export_request_digest: None,
             activation_refresh_request_digest: None,
+            post_registration_application_binding_digest: None,
         })
     }
 
@@ -68,6 +72,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
             registration_binding: None,
             explicit_export_request_digest: None,
             activation_refresh_request_digest: None,
+            post_registration_application_binding_digest: None,
         })
     }
 
@@ -141,9 +146,15 @@ impl RouterAbEcdsaClientCeremonyV1 {
 
     /// Builds a strict explicit client-export request.
     pub fn build_explicit_export_request(&mut self, input_json: &str) -> Result<String, JsValue> {
+        let input: ExplicitExportRequestInputV1 = parse_json(input_json)?;
+        let application_binding_digest = decode_fixed_base64::<32>(
+            &input.common.context.application_binding_digest_b64u,
+            "export application binding digest",
+        )?;
         let (serialized, digest, _transcript_digest) =
             build_explicit_export_request_with_keypair(input_json, self.active_keypair()?)?;
         self.explicit_export_request_digest = Some(digest);
+        self.post_registration_application_binding_digest = Some(application_binding_digest);
         Ok(serialized)
     }
 
@@ -172,14 +183,45 @@ impl RouterAbEcdsaClientCeremonyV1 {
         let request = self.build_post_request(header, &input.common.deriver_recipient_keys)?;
         self.activation_refresh_request_digest =
             Some(request.digest().map_err(protocol_error).map_err(js_error)?);
+        self.post_registration_application_binding_digest = Some(decode_fixed_base64::<32>(
+            &input.common.context.application_binding_digest_b64u,
+            "activation refresh application binding digest",
+        )?);
         serialize_refresh_request(input, request)
     }
 
     /// Verifies strict client proof bundles and discards the protocol output inside wasm.
     pub fn verify_encrypted_proof_bundles(&self, input_json: &str) -> Result<(), JsValue> {
-        let mut output = finalize_encrypted_client_proof_output_v1(
+        let mut output = match &self.registration_binding {
+            Some(binding) => finalize_encrypted_client_proof_output_v2(
+                input_json,
+                self.active_keypair()?.private_key_bytes(),
+                decode_fixed_base64::<32>(
+                    &binding.application_binding_digest_b64u,
+                    "registration application binding digest",
+                )?,
+            ),
+            None => finalize_encrypted_client_proof_output_v1(
+                input_json,
+                self.active_keypair()?.private_key_bytes(),
+            ),
+        }
+        .map_err(js_error)?;
+        output.zeroize();
+        Ok(())
+    }
+
+    /// Verifies stable tenant-root proof bundles for a post-registration ceremony.
+    pub fn verify_stable_encrypted_proof_bundles(&self, input_json: &str) -> Result<(), JsValue> {
+        let application_binding_digest = self
+            .post_registration_application_binding_digest
+            .ok_or_else(|| {
+                JsValue::from_str("Router A/B ECDSA post-registration request was not built")
+            })?;
+        let mut output = finalize_encrypted_client_proof_output_v2(
             input_json,
             self.active_keypair()?.private_key_bytes(),
+            application_binding_digest,
         )
         .map_err(js_error)?;
         output.zeroize();
@@ -304,6 +346,7 @@ impl RouterAbEcdsaClientCeremonyV1 {
         self.registration_binding.take();
         self.explicit_export_request_digest.take();
         self.activation_refresh_request_digest.take();
+        self.post_registration_application_binding_digest.take();
         self.keypair.take();
     }
 }
@@ -1154,6 +1197,7 @@ mod tests {
             registration_binding: None,
             activation_refresh_request_digest: None,
             explicit_export_request_digest: None,
+            post_registration_application_binding_digest: None,
         }
     }
 

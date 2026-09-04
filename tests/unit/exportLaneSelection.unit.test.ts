@@ -30,6 +30,7 @@ import { resolveCanonicalPasskeyEcdsaExportMaterialForLane } from '@/core/signin
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import { OwnerRelinkRequiredError } from '../../packages/wallet/src/core/signingEngine/session/identity/ownerLaneScope';
+import type { ActiveEcdsaCapabilityRuntimeResolver } from '../../packages/wallet/src/core/signingEngine/session/material/activeEcdsaCapabilityRuntime';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -131,6 +132,13 @@ function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectio
     readPersistedAvailableSigningLanesForTargets: read,
     readOwnerScopedAvailableSigningLanesForTargets: read,
   };
+}
+
+function rejectUnexpectedActiveEcdsaCapabilityRuntimeResolution(
+  input: Parameters<ActiveEcdsaCapabilityRuntimeResolver>[0],
+): ReturnType<ActiveEcdsaCapabilityRuntimeResolver> {
+  void input;
+  return Promise.reject(new Error('passkey export fixture unexpectedly resolved sealed runtime'));
 }
 
 function ed25519Lane(
@@ -332,6 +340,7 @@ test.describe('Ed25519 export lane selection', () => {
       laneIdentity: expectEd25519ExportMaterialIdentity(lane),
       materialActivation: lane.materialActivation,
     });
+    if (selected.kind !== 'ed25519') throw new Error('expected an Ed25519 export lane');
     expect(selected.laneIdentity).not.toHaveProperty('walletSessionId');
     expect(selected.laneIdentity).not.toHaveProperty('quotaId');
   });
@@ -516,9 +525,13 @@ test.describe('ECDSA export lane selection', () => {
       material: { kind: 'sealed_worker_material' },
     });
     expect(resolved).not.toHaveProperty('authorization');
+    if (resolved.source !== 'canonical_capability') {
+      throw new Error('expected a canonical ECDSA export capability');
+    }
 
     const material = resolveCanonicalPasskeyEcdsaExportMaterialForLane({
       deps: {
+        resolveActiveEcdsaCapabilityRuntime: rejectUnexpectedActiveEcdsaCapabilityRuntimeResolution,
         exportArtifactsByLane: new Map(),
         relayerUrl: 'https://relay.example.test',
       },

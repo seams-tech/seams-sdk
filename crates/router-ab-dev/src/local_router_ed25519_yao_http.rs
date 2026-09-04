@@ -1,9 +1,11 @@
+use router_ab_cloudflare::{
+    CloudflareEd25519YaoTenantRootContextV2, CloudflareRouterEd25519YaoExecuteRequestV2,
+};
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedInputV1, Ed25519YaoInputPairBindingV1,
     Ed25519YaoOperationV1, PublicDigest32, RouterAbEd25519YaoExportBindingV1,
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
     RouterAdmittedExecutionAuthorityV1, RouterEd25519YaoExecuteRequestV1,
-    RouterEd25519YaoGatewayExecuteRequestV1,
 };
 
 /// Exact role inputs extracted from one validated Router execution request.
@@ -20,11 +22,15 @@ pub struct LocalRouterEd25519YaoPairDispatchV1 {
     pub pair_binding: Ed25519YaoInputPairBindingV1,
     pub deriver_a_input: Ed25519YaoEncryptedInputV1,
     pub deriver_b_input: Ed25519YaoEncryptedInputV1,
+    pub tenant_root: CloudflareEd25519YaoTenantRootContextV2,
 }
 
 impl LocalRouterEd25519YaoPairDispatchV1 {
     /// Converts the canonical core request into role-specific dispatch data.
-    pub fn from_request(request: RouterEd25519YaoExecuteRequestV1) -> Self {
+    pub fn from_request(
+        request: RouterEd25519YaoExecuteRequestV1,
+        tenant_root: CloudflareEd25519YaoTenantRootContextV2,
+    ) -> Self {
         match request {
             RouterEd25519YaoExecuteRequestV1::Registration {
                 authority,
@@ -48,6 +54,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
             RouterEd25519YaoExecuteRequestV1::Export {
                 authority,
@@ -64,6 +71,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
             RouterEd25519YaoExecuteRequestV1::LaneProvisioning {
                 authority,
@@ -89,6 +97,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
+                tenant_root,
             },
         }
     }
@@ -132,6 +141,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
             }
         }
         self.pair_binding.validate()?;
+        self.tenant_root.validate_for_pair(&self.pair_binding)?;
         if self.pair_binding.ceremony().binding() != &self.binding
             || self.pair_binding.ceremony().binding().operation != self.operation
         {
@@ -165,17 +175,29 @@ pub fn decode_local_router_ed25519_yao_execute_request_v1(
     recipient_set_digest: PublicDigest32,
     issued_at_ms: u64,
     expires_at_ms: u64,
+    resolver: &super::LocalTenantRootResolverConfigV1,
 ) -> RouterAbProtocolResult<LocalRouterEd25519YaoPairDispatchV1> {
-    let gateway_request = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteRequestV1>(body)
+    let envelope = serde_json::from_slice::<CloudflareRouterEd25519YaoExecuteRequestV2>(body)
         .map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("local Router Ed25519 Yao execute request is malformed: {error}"),
-        )
-    })?;
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local Router Ed25519 Yao execute request is malformed: {error}"),
+            )
+        })?;
+    envelope.validate()?;
     let request =
-        gateway_request.into_execute_request(recipient_set_digest, issued_at_ms, expires_at_ms)?;
-    let dispatch = LocalRouterEd25519YaoPairDispatchV1::from_request(request);
+        envelope
+            .target
+            .into_execute_request(recipient_set_digest, issued_at_ms, expires_at_ms)?;
+    let tenant_root = resolver.resolve_context(
+        &envelope.tenant_root,
+        &envelope.application,
+        envelope.participant_ids,
+        request.pair_binding(),
+        issued_at_ms,
+        expires_at_ms,
+    )?;
+    let dispatch = LocalRouterEd25519YaoPairDispatchV1::from_request(request, tenant_root);
     dispatch.validate()?;
     Ok(dispatch)
 }
@@ -186,15 +208,18 @@ fn pair_http_error(message: &'static str) -> RouterAbProtocolError {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalTenantRootResolverConfigV1;
+
     use super::*;
     use router_ab_core::{
         Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1,
         Ed25519YaoInputKindV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
         Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
         MpcMaterialActivationRefV1, RootShareEpoch,
+        RouterEd25519YaoGatewayExecuteTargetV2,
     };
 
-    fn request_fixture() -> RouterEd25519YaoGatewayExecuteRequestV1 {
+    fn request_fixture() -> RouterEd25519YaoGatewayExecuteTargetV2 {
         let lifecycle = LifecycleScopeV1::new(
             "local-http",
             ExpensiveWorkKindV1::RegistrationPrepare,
@@ -243,36 +268,23 @@ mod tests {
             vec![0x92; 16],
         )
         .expect("B input");
-        RouterEd25519YaoGatewayExecuteRequestV1::registration(binding, input_a, input_b)
+        RouterEd25519YaoGatewayExecuteTargetV2::registration(binding, input_a, input_b)
             .expect("gateway request")
     }
 
     #[test]
-    fn canonical_request_decodes_into_exact_role_inputs() {
+    fn direct_gateway_target_is_rejected_without_server_envelope() {
         let request = request_fixture();
         let encoded = serde_json::to_vec(&request).expect("request JSON");
-        let encoded_text = std::str::from_utf8(&encoded).expect("request JSON is UTF-8");
-        assert!(!encoded_text.contains("\"authority\""));
-        assert!(!encoded_text.contains("\"pair_binding\""));
-        let recipient_set_digest = PublicDigest32::new([0xa1; 32]);
-        let dispatch = decode_local_router_ed25519_yao_execute_request_v1(
+        let error = decode_local_router_ed25519_yao_execute_request_v1(
             &encoded,
-            recipient_set_digest,
+            PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
-        .expect("request should decode");
-        assert_eq!(dispatch.operation, Ed25519YaoOperationV1::Registration);
-        assert_eq!(dispatch.deriver_a_input.ciphertext(), &[0x91; 16]);
-        assert_eq!(dispatch.deriver_b_input.ciphertext(), &[0x92; 16]);
-        assert_eq!(
-            dispatch.pair_binding.recipient_set_digest(),
-            recipient_set_digest
-        );
-        assert_eq!(
-            dispatch.authority.authority_digest(),
-            dispatch.pair_binding.authorization_digest()
-        );
+        .expect_err("direct client target must not reach dispatch");
+        assert_eq!(error.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
     }
 
     #[test]
@@ -282,6 +294,7 @@ mod tests {
             PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
         .expect_err("unknown fields must be rejected");
         assert_eq!(

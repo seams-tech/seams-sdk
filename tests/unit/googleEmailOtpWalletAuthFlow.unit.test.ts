@@ -13,6 +13,10 @@ import type {
 import type { RegistrationResult } from '@/core/types/seams';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
+import {
+  emailOtpEcdsaUnlockSignerSelectionFixture,
+  emailOtpEd25519OnlyUnlockSignerSelectionFixture,
+} from './helpers/emailOtpUnlockSignerSelection.fixtures';
 
 const TEMPO_TARGET = {
   kind: 'tempo',
@@ -34,15 +38,9 @@ const TEST_RUNTIME_POLICY_SCOPE = {
   signingRootVersion: 'v1',
 } as const;
 
-const ECDSA_SIGNER_SELECTION = {
-  kind: 'ecdsa',
-  keyHandle: 'ecdsa-key-handle-1',
-  runtimePolicyScope: TEST_RUNTIME_POLICY_SCOPE,
-} as const satisfies EmailOtpUnlockSignerSelection;
+const ECDSA_SIGNER_SELECTION = emailOtpEcdsaUnlockSignerSelectionFixture();
 
-const ED25519_SIGNER_SELECTION = {
-  kind: 'ed25519_only',
-} as const satisfies EmailOtpUnlockSignerSelection;
+const ED25519_SIGNER_SELECTION = emailOtpEd25519OnlyUnlockSignerSelectionFixture();
 
 function testConfigs(): GoogleEmailOtpWalletAuthDeps['configs'] {
   return {
@@ -136,7 +134,7 @@ function challengeResult(
     walletAuthMethodId?: string;
     signerSelection?: EmailOtpUnlockSignerSelection;
   } = {},
-) {
+): Awaited<ReturnType<GoogleEmailOtpWalletAuthDeps['requestEmailOtpChallenge']>> {
   const delivery =
     input.delivery ??
     ({

@@ -118,6 +118,9 @@ test.describe('Ed25519 Yao export browser boundary', () => {
       authorization: {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
+        walletAuthMethodId: 'wallet-auth-method:ed25519-export',
+        challengeId: 'email-otp-challenge-1',
+        otpCode: '123456',
       },
     });
 
@@ -126,6 +129,9 @@ test.describe('Ed25519 Yao export browser boundary', () => {
       authorization: {
         kind: 'email_otp_factor',
         providerSubjectId: 'google:ed25519-export-user',
+        walletAuthMethodId: 'wallet-auth-method:ed25519-export',
+        challengeId: 'email-otp-challenge-1',
+        otpCode: '123456',
       },
     });
     expect(JSON.stringify(body)).not.toContain('webauthn');

@@ -95,11 +95,11 @@ import {
   parseRouterAbEcdsaDerivationExplicitExportRequestV1,
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
-  type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
+  type RouterAbEcdsaStableClientProofFinalizationV2,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
@@ -467,7 +467,7 @@ function parseRouterAbEcdsaRegistrationBinding(
   };
 }
 
-function proofTranscriptDigestB64u(input: RouterAbEcdsaClientProofFinalizationV1): string {
+function proofTranscriptDigestB64u(input: RouterAbEcdsaStableClientProofFinalizationV2): string {
   const signerA = input.bundles.signerA.transcriptDigestB64u;
   const signerB = input.bundles.signerB.transcriptDigestB64u;
   if (signerA !== signerB) {
@@ -1135,7 +1135,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
     throw new Error('ECDSA explicit export finalization requires an active export ceremony');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
+    active.ceremony.verify_stable_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
+    );
     const exportBinding = {
       wallet_id: String(request.publicFacts.walletId),
       key_handle: request.publicFacts.keyHandle,
@@ -1229,7 +1231,9 @@ function verifyRouterAbEcdsaPostRegistrationProofs(
     throw new Error('ECDSA explicit export proofs require export finalization');
   }
   try {
-    active.ceremony.verify_encrypted_proof_bundles(JSON.stringify(request.clientProofFinalization));
+    active.ceremony.verify_stable_encrypted_proof_bundles(
+      JSON.stringify(request.clientProofFinalization),
+    );
     return { kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1', ceremonyId };
   } finally {
     closeRouterAbEcdsaPostRegistrationCeremonyState(ceremonyId, active);

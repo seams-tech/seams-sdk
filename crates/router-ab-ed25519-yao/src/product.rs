@@ -6,11 +6,9 @@ use router_ab_core::{
     RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use signer_core::ed25519_yao_derivation::{
-    derive_ed25519_yao_deriver_a_server_contribution_v1,
-    derive_ed25519_yao_deriver_b_server_contribution_v1, Ed25519YaoDeriverAClientContributionV1,
-    Ed25519YaoDeriverADerivationRootV1, Ed25519YaoDeriverAServerContributionV1,
-    Ed25519YaoDeriverBClientContributionV1, Ed25519YaoDeriverBDerivationRootV1,
-    Ed25519YaoDeriverBServerContributionV1, Ed25519YaoStableKeyDerivationContextV1,
+    Ed25519YaoDeriverAClientContributionV1, Ed25519YaoDeriverAServerContributionV1,
+    Ed25519YaoDeriverBClientContributionV1, Ed25519YaoDeriverBServerContributionV1,
+    Ed25519YaoStableKeyDerivationContextV1,
 };
 
 use crate::{
@@ -28,90 +26,10 @@ use crate::{
     LocalEd25519YaoRefreshDeriverBRequestV1,
 };
 
-/// Derives Deriver A's deterministic role-local server contribution.
-pub fn derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
-    root: [u8; 32],
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-) -> Result<Ed25519YaoDeriverAServerContributionV1, AdapterError> {
-    let context = product_context(application, participant_ids)?;
-    derive_ed25519_yao_deriver_a_server_contribution_v1(
-        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(root),
-        &context,
-    )
-    .map_err(|_| AdapterError::ServerContributionDerivation)
-}
-
-/// Derives Deriver B's deterministic role-local server contribution.
-pub fn derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
-    root: [u8; 32],
-    application: &RouterAbEd25519YaoApplicationBindingFactsV1,
-    participant_ids: [u16; 2],
-) -> Result<Ed25519YaoDeriverBServerContributionV1, AdapterError> {
-    let context = product_context(application, participant_ids)?;
-    derive_ed25519_yao_deriver_b_server_contribution_v1(
-        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(root),
-        &context,
-    )
-    .map_err(|_| AdapterError::ServerContributionDerivation)
-}
-
-/// Builds one fixed activation Deriver A role from the A-only root and request.
-pub fn build_product_activation_deriver_a_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoActivationDeriverARequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ActivationDeriverA), AdapterError> {
-    let server = derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_activation_deriver_a_with_server_v1(request, server)
-}
-
-/// Builds one fixed activation Deriver B role from the B-only root and request.
-pub fn build_product_activation_deriver_b_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoActivationDeriverBRequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ActivationDeriverB), AdapterError> {
-    let server = derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_activation_deriver_b_with_server_v1(request, server)
-}
-
-/// Builds one fixed export Deriver A role from the A-only root and request.
-pub fn build_product_export_deriver_a_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoExportDeriverARequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ExportDeriverA), AdapterError> {
-    let server = derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_export_deriver_a_with_server_v1(request, server)
-}
-
-/// Builds one fixed export Deriver B role from the B-only root and request.
-pub fn build_product_export_deriver_b_v1(
-    root: [u8; 32],
-    request: LocalEd25519YaoExportDeriverBRequestV1,
-) -> Result<(Ed25519YaoCeremonyBindingV1, ExportDeriverB), AdapterError> {
-    let server = derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
-    build_product_export_deriver_b_with_server_v1(request, server)
-}
-
-/// Builds the selected lane-materialization Deriver A from A-only stable roots.
-pub fn build_product_lane_deriver_a_v1<R>(
-    root: [u8; 32],
+/// Builds the selected lane-materialization Deriver A from prepared effective state.
+pub fn build_product_lane_deriver_a_with_server_v1<R>(
     request: LocalEd25519YaoLaneDeriverARequestV1,
+    server: Ed25519YaoDeriverAServerContributionV1,
     rng: &mut R,
 ) -> Result<
     (
@@ -124,11 +42,6 @@ pub fn build_product_lane_deriver_a_v1<R>(
 where
     R: CryptoRng + RngCore,
 {
-    let server = derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
     let recipients = request.recipients;
     let job = request.job;
     let (binding, _context, client) = validate_a_request(
@@ -154,10 +67,10 @@ where
     Ok((binding, job, role))
 }
 
-/// Builds the selected lane-materialization Deriver B from B-only stable roots.
-pub fn build_product_lane_deriver_b_v1<R>(
-    root: [u8; 32],
+/// Builds the selected lane-materialization Deriver B from prepared effective state.
+pub fn build_product_lane_deriver_b_with_server_v1<R>(
     request: LocalEd25519YaoLaneDeriverBRequestV1,
+    server: Ed25519YaoDeriverBServerContributionV1,
     rng: &mut R,
 ) -> Result<
     (
@@ -170,11 +83,6 @@ pub fn build_product_lane_deriver_b_v1<R>(
 where
     R: CryptoRng + RngCore,
 {
-    let server = derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
-        root,
-        &request.application_binding,
-        request.participant_ids,
-    )?;
     let recipients = request.recipients;
     let job = request.job;
     let (binding, _context, client) = validate_b_request(

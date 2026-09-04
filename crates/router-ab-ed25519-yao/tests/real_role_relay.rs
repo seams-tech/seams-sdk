@@ -1,12 +1,19 @@
 use core::fmt::Debug;
 use std::collections::BTreeMap;
 
+use curve25519_dalek::scalar::Scalar;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use rand_chacha::ChaCha20Rng;
+use rand_core::SeedableRng;
 
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
     Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
-    MpcMaterialActivationRefV1, RootShareEpoch,
+    MpcMaterialActivationRefV1, RootShareEpoch, StableTenantDerivationContextV2,
+};
+use router_ab_ecdsa_derivation::shared::secp256k1::{
+    add_secp256k1_public_keys_33, secp256k1_private_key_32_to_public_key_33,
+    secp256k1_public_key_33_to_ethereum_address_20,
 };
 use router_ab_ed25519_yao::recipient::{
     client::{combine_client_activation_packages, combine_export_packages},
@@ -44,6 +51,14 @@ use signer_core::near_threshold_ed25519::{
     verifying_share_bytes_from_signing_share_bytes,
 };
 use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
+use threshold_prf::{
+    apply_two_party_root_share_refresh, combine_verified_partials,
+    complete_ed25519_deriver_a_target_v1, complete_ed25519_deriver_b_target_v1,
+    evaluate_partial_with_dleq_proof, generate_two_party_root_share,
+    prepare_ed25519_deriver_a_target_v1, prepare_ed25519_deriver_b_target_v1, PrfContext,
+    PrfPurpose, RootShareRefreshCoefficient, SigningRootShare, SigningRootShareCommitment, SuiteId,
+    ThresholdPolicy, TwoPartyDeriverRole, ValidatedThresholdSet,
+};
 use zeroize::{Zeroize, Zeroizing};
 
 fn lifecycle(work_kind: ExpensiveWorkKindV1) -> LifecycleScopeV1 {
@@ -530,4 +545,230 @@ fn builders_reject_wrong_family_and_cross_lifecycle_activation_shapes() {
         ActivationDeriverBContribution::refresh(&context, client_b, server_b),
     )
     .is_ok());
+}
+
+fn preservation_rng(seed: u8) -> ChaCha20Rng {
+    ChaCha20Rng::from_seed([seed; 32])
+}
+
+fn refresh_preservation_share(
+    current: &SigningRootShare,
+    recipient: TwoPartyDeriverRole,
+    coefficient_a: &RootShareRefreshCoefficient,
+    coefficient_b: &RootShareRefreshCoefficient,
+) -> SigningRootShare {
+    let contribution_a = coefficient_a
+        .commitment()
+        .verify_contribution(coefficient_a.contribution_for(recipient))
+        .expect("Deriver A refresh contribution verifies");
+    let contribution_b = coefficient_b
+        .commitment()
+        .verify_contribution(coefficient_b.contribution_for(recipient))
+        .expect("Deriver B refresh contribution verifies");
+    apply_two_party_root_share_refresh(current, contribution_a, contribution_b)
+        .expect("tenant root share refresh succeeds")
+}
+
+fn evaluate_ecdsa_preservation_output(
+    shares: &[SigningRootShare],
+    stable_context: &StableTenantDerivationContextV2,
+    purpose: PrfPurpose,
+    proof_seed: u8,
+) -> [u8; 32] {
+    let context = PrfContext::new(
+        SuiteId::Ristretto255Sha512,
+        purpose,
+        stable_context.canonical_context_bytes(),
+    );
+    let policy = ThresholdPolicy::from_u16s(2, 2).expect("fixed 2-of-2 policy");
+    let mut proof_rng = preservation_rng(proof_seed);
+    let bundles = ValidatedThresholdSet::from_proof_bundles(
+        policy,
+        shares
+            .iter()
+            .map(|share| {
+                evaluate_partial_with_dleq_proof(share, &context, &mut proof_rng)
+                    .expect("ECDSA partial proof evaluates")
+            })
+            .collect(),
+    )
+    .expect("ECDSA proof set validates");
+    combine_verified_partials(&bundles, &context)
+        .expect("ECDSA partials combine")
+        .into_bytes()
+}
+
+fn ecdsa_preservation_identity(
+    shares: &[SigningRootShare],
+    stable_context: &StableTenantDerivationContextV2,
+    proof_seed: u8,
+) -> (Vec<u8>, Vec<u8>) {
+    let client_base = evaluate_ecdsa_preservation_output(
+        shares,
+        stable_context,
+        PrfPurpose::RouterAbXClientBaseV1,
+        proof_seed,
+    );
+    let server_base = evaluate_ecdsa_preservation_output(
+        shares,
+        stable_context,
+        PrfPurpose::RouterAbXServerBaseV1,
+        proof_seed.wrapping_add(1),
+    );
+    let client_public_key =
+        secp256k1_private_key_32_to_public_key_33(&client_base).expect("ECDSA client public key");
+    let server_public_key =
+        secp256k1_private_key_32_to_public_key_33(&server_base).expect("ECDSA server public key");
+    let threshold_public_key = add_secp256k1_public_keys_33(&client_public_key, &server_public_key)
+        .expect("ECDSA threshold public key");
+    let address = secp256k1_public_key_33_to_ethereum_address_20(&threshold_public_key)
+        .expect("ECDSA Ethereum address");
+    (threshold_public_key, address)
+}
+
+fn ed25519_preservation_roots(
+    shares: &[SigningRootShare],
+    stable_context_bytes: &[u8],
+    proof_seed: u8,
+) -> ([u8; 32], [u8; 32]) {
+    let deriver_a_commitment = SigningRootShareCommitment::from_share(&shares[0]);
+    let deriver_b_commitment = SigningRootShareCommitment::from_share(&shares[1]);
+    let mut proof_rng = preservation_rng(proof_seed);
+    let (prepared_a, proof_a_to_b) = prepare_ed25519_deriver_a_target_v1(
+        &shares[0],
+        deriver_b_commitment,
+        stable_context_bytes,
+        &mut proof_rng,
+    )
+    .expect("Ed25519 Deriver A target prepares");
+    let (prepared_b, proof_b_to_a) = prepare_ed25519_deriver_b_target_v1(
+        &shares[1],
+        deriver_a_commitment,
+        stable_context_bytes,
+        &mut proof_rng,
+    )
+    .expect("Ed25519 Deriver B target prepares");
+    let root_a = complete_ed25519_deriver_a_target_v1(prepared_a, &proof_b_to_a)
+        .expect("Ed25519 Deriver A target completes")
+        .into_secret_bytes();
+    let root_b = complete_ed25519_deriver_b_target_v1(prepared_b, &proof_a_to_b)
+        .expect("Ed25519 Deriver B target completes")
+        .into_secret_bytes();
+    (*root_a, *root_b)
+}
+
+fn ed25519_preservation_public_key(
+    context: &Ed25519YaoStableKeyDerivationContextV1,
+    client_a: Ed25519YaoDeriverAClientContributionV1,
+    client_b: Ed25519YaoDeriverBClientContributionV1,
+    root_a: [u8; 32],
+    root_b: [u8; 32],
+) -> [u8; 32] {
+    let server_a = derive_ed25519_yao_deriver_a_server_contribution_v1(
+        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(root_a),
+        context,
+    )
+    .expect("Ed25519 Deriver A server KDF");
+    let server_b = derive_ed25519_yao_deriver_b_server_contribution_v1(
+        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(root_b),
+        context,
+    )
+    .expect("Ed25519 Deriver B server KDF");
+    let activation_session = [0x51; 32];
+    let activation_binding = binding(
+        Ed25519YaoOperationV1::Registration,
+        ExpensiveWorkKindV1::RegistrationPrepare,
+        activation_session,
+    );
+    let activation_a = build_activation_deriver_a(
+        &activation_binding,
+        ActivationDeriverAContribution::base(context, client_a, server_a),
+    )
+    .expect("Ed25519 activation A");
+    let activation_b = build_activation_deriver_b(
+        &activation_binding,
+        ActivationDeriverBContribution::base(context, client_b, server_b),
+    )
+    .expect("Ed25519 activation B");
+    let (activation_a, activation_b) = run_roles(
+        activation_session,
+        activation_a,
+        activation_b,
+        ActivationDeriverA::handle,
+        ActivationDeriverB::handle,
+        ActivationDeriverA::instruction,
+        ActivationDeriverB::instruction,
+    );
+    let commitments = ActivationPublicCommitments::new(
+        activation_a.client_commitment(),
+        activation_b.client_commitment(),
+        activation_a.signing_worker_commitment(),
+        activation_b.signing_worker_commitment(),
+    );
+    *derive_registration_receipt(commitments)
+        .expect("Ed25519 registration receipt")
+        .registered_public_key()
+}
+
+#[test]
+fn tenant_root_resharing_preserves_ecdsa_and_ed25519_public_keys() {
+    let initial = vec![
+        generate_two_party_root_share(TwoPartyDeriverRole::DeriverA, &mut preservation_rng(1)),
+        generate_two_party_root_share(TwoPartyDeriverRole::DeriverB, &mut preservation_rng(2)),
+    ];
+    let coefficient_a = RootShareRefreshCoefficient::from_canonical_bytes(
+        TwoPartyDeriverRole::DeriverA,
+        Scalar::from(17_u64).to_bytes(),
+    )
+    .expect("Deriver A refresh coefficient");
+    let coefficient_b = RootShareRefreshCoefficient::from_canonical_bytes(
+        TwoPartyDeriverRole::DeriverB,
+        Scalar::from(29_u64).to_bytes(),
+    )
+    .expect("Deriver B refresh coefficient");
+    let refreshed = vec![
+        refresh_preservation_share(
+            &initial[0],
+            TwoPartyDeriverRole::DeriverA,
+            &coefficient_a,
+            &coefficient_b,
+        ),
+        refresh_preservation_share(
+            &initial[1],
+            TwoPartyDeriverRole::DeriverB,
+            &coefficient_a,
+            &coefficient_b,
+        ),
+    ];
+    assert_ne!(initial[0].to_bytes(), refreshed[0].to_bytes());
+    assert_ne!(initial[1].to_bytes(), refreshed[1].to_bytes());
+
+    let stable_context = StableTenantDerivationContextV2::new([0x42; 32]);
+    let before_ecdsa = ecdsa_preservation_identity(&initial, &stable_context, 10);
+    let after_ecdsa = ecdsa_preservation_identity(&refreshed, &stable_context, 20);
+    assert_eq!(before_ecdsa, after_ecdsa);
+
+    let (context_before, client_a_before, client_b_before, _, _) = derive_vector_contributions();
+    let (context_after, client_a_after, client_b_after, _, _) = derive_vector_contributions();
+    let context_bytes = context_before.encode();
+    let (root_a_before, root_b_before) = ed25519_preservation_roots(&initial, &context_bytes, 30);
+    let (root_a_after, root_b_after) =
+        ed25519_preservation_roots(&refreshed, &context_after.encode(), 40);
+    assert_eq!(root_a_before, root_a_after);
+    assert_eq!(root_b_before, root_b_after);
+    let before_ed25519 = ed25519_preservation_public_key(
+        &context_before,
+        client_a_before,
+        client_b_before,
+        root_a_before,
+        root_b_before,
+    );
+    let after_ed25519 = ed25519_preservation_public_key(
+        &context_after,
+        client_a_after,
+        client_b_after,
+        root_a_after,
+        root_b_after,
+    );
+    assert_eq!(before_ed25519, after_ed25519);
 }

@@ -149,6 +149,12 @@ import {
   routerAbEcdsaStrictRegistrationRequestMatchesFacts,
   type RouterAbEcdsaStrictRegistrationPort,
 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
+import {
+  resolveTenantRootIdentityV1,
+  type ActiveEd25519MaterialActivationV1,
+  type TenantRootIdentityV1,
+} from '../../../domains/tenantRoot/tenantRootIdentityResolution';
 import { CloudflareD1RegistrationCeremonyIntentStore } from './d1RegistrationCeremonyStore';
 import type {
   InstalledLinkedDeviceEcdsaAuthorityProjectionV1,
@@ -243,6 +249,7 @@ import {
   type WalletEcdsaSignerKey,
   type WalletEcdsaSignerRecord,
   type WalletEcdsaPendingSessionActivationRecord,
+  type WalletEd25519YaoActiveCapabilityRecord,
   type WalletEd25519SignerRecord,
   type WalletSignerRecord,
 } from '../../../../core/WalletStore';
@@ -536,6 +543,46 @@ async function ed25519ExportIdentityFromActiveCapability(
     runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
       descriptor.runtimePolicyScope,
     ),
+  };
+}
+
+async function ed25519ExportIdentityFromPersistedCapability(
+  capability: WalletEd25519YaoActiveCapabilityRecord,
+): Promise<RouterAbEd25519YaoExportAuthorizationIdentityV1> {
+  const binding = capability.activationResult.binding;
+  return {
+    scope: {
+      lifecycle_id: binding.lifecycle.lifecycle_id,
+      root_share_epoch: binding.lifecycle.root_share_epoch,
+      account_id: binding.lifecycle.account_id,
+      threshold_session_id: binding.lifecycle.session_id,
+      signer_set_id: binding.lifecycle.signer_set_id,
+      signing_worker_id: binding.lifecycle.selected_server_id,
+      material_activation: binding.material_activation,
+    },
+    application_binding: capability.admissionRequest.application_binding,
+    participant_ids: capability.admissionRequest.participant_ids,
+    registered_public_key: capability.activationResult.public_receipt.registered_public_key,
+    state_epoch: capability.activationResult.public_receipt.state_epoch,
+    runtime_policy_binding: await deriveRouterAbEd25519YaoRuntimePolicyBindingV1(
+      capability.runtimePolicyScope,
+    ),
+  };
+}
+
+async function activeEd25519MaterialFromPersistedSigner(
+  signer: WalletEd25519SignerRecord,
+): Promise<ActiveEd25519MaterialActivationV1> {
+  const capability = signer.activeYaoCapability;
+  return {
+    ok: true,
+    materialActivation: capability.activationResult.binding.material_activation,
+    nearAccountId: capability.nearAccountId,
+    signerSlot: signer.signerSlot,
+    signingWorkerId: signer.signingWorkerId,
+    participantIds: signer.participantIds,
+    runtimePolicyScope: capability.runtimePolicyScope,
+    exportIdentity: await ed25519ExportIdentityFromPersistedCapability(capability),
   };
 }
 
@@ -1545,6 +1592,20 @@ function registrationPreparedContextRuntimePolicyScope(
     : undefined;
 }
 
+function registrationTenantRootIdentity(
+  preparedContext: StoredWalletRegistrationPreparedContext,
+): TenantRootIdentityV1 | null {
+  const scope = registrationPreparedContextRuntimePolicyScope(preparedContext);
+  if (!scope) return null;
+  return {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    signingRootId: preparedContext.signingRootId,
+    signingRootVersion: preparedContext.signingRootVersion,
+  };
+}
+
 function registrationPreparedContextEcdsaChainTargets(
   preparedContext: StoredWalletRegistrationPreparedContext,
 ): readonly ThresholdEcdsaChainTarget[] | null {
@@ -1983,6 +2044,7 @@ export class CloudflareD1WalletRegistrationService {
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
   private readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
   private readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  private readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
   private readonly getWalletStore: WalletStoreProvider;
   /** The single Gateway operation row for activate-with-finalize (94C). */
   private readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
@@ -2002,6 +2064,7 @@ export class CloudflareD1WalletRegistrationService {
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
     readonly getEd25519YaoProductRegistration: Ed25519YaoProductRegistrationProvider;
     readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+    readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
     readonly getWalletStore: WalletStoreProvider;
     readonly activateSideEffects: D1WalletRegistrationActivateSideEffectStore;
     readonly nearProvisioningSideEffects: D1WalletRegistrationNearProvisioningSideEffectStore;
@@ -2017,6 +2080,7 @@ export class CloudflareD1WalletRegistrationService {
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
     this.getEd25519YaoProductRegistration = input.getEd25519YaoProductRegistration;
     this.ecdsaStrictRegistration = input.ecdsaStrictRegistration;
+    this.tenantRootCustodyLineage = input.tenantRootCustodyLineage;
     this.getWalletStore = input.getWalletStore;
     this.activateSideEffects = input.activateSideEffects;
     this.nearProvisioningSideEffects = input.nearProvisioningSideEffects;
@@ -2146,9 +2210,26 @@ export class CloudflareD1WalletRegistrationService {
         participantIds: signer.participantIds,
       });
       if (!active.ok) {
+        if (active.code === 'unknown_capability') {
+          if (
+            !sameRouterAbMpcMaterialActivationRef(
+              signer.activeYaoCapability.activationResult.binding.material_activation,
+              input.materialActivation,
+            )
+          ) {
+            return {
+              ok: false,
+              code: 'not_found',
+              message: 'Ed25519 material activation does not match the persisted capability',
+            };
+          }
+          // Recovery admission suspends the in-memory capability before its
+          // execute request; the persisted signer remains the admitted source.
+          return await activeEd25519MaterialFromPersistedSigner(signer);
+        }
         return {
           ok: false,
-          code: active.code === 'unknown_capability' ? 'not_found' : 'internal',
+          code: 'internal',
           message: active.message,
         };
       }
@@ -2271,6 +2352,108 @@ export class CloudflareD1WalletRegistrationService {
         ok: false,
         code: 'internal',
         message: error instanceof Error ? error.message : 'ECDSA material lookup failed',
+      };
+    }
+  }
+
+  async resolveActiveEd25519TenantRoot(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly identityDigestB64u: string;
+        readonly custodyLineageB64u: string;
+      }
+    | {
+        readonly ok: false;
+        readonly code: 'not_found' | 'invalid_state' | 'internal';
+        readonly message: string;
+      }
+  > {
+    const activeMaterial = await this.resolveEd25519MaterialActivation(input);
+    if (!activeMaterial.ok) return activeMaterial;
+
+    const identity = resolveTenantRootIdentityV1({
+      kind: 'ed25519_b5_active_material',
+      activeMaterial,
+    });
+    if (!identity.ok) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: identity.message,
+      };
+    }
+
+    try {
+      const tenantRoot = await this.tenantRootCustodyLineage.resolveActiveLineage(
+        identity.identity,
+      );
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'Ed25519 tenant root is not active',
+        };
+      }
+      return { ok: true, ...tenantRoot };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'Ed25519 tenant-root lookup failed',
+      };
+    }
+  }
+
+  async resolveActiveEcdsaTenantRoot(input: {
+    readonly walletId: string;
+    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+  }): Promise<
+    | {
+        readonly ok: true;
+        readonly identityDigestB64u: string;
+        readonly custodyLineageB64u: string;
+      }
+    | {
+        readonly ok: false;
+        readonly code: 'not_found' | 'invalid_state' | 'internal';
+        readonly message: string;
+      }
+  > {
+    const activeMaterial = await this.resolveEcdsaMaterialActivation(input);
+    if (!activeMaterial.ok) return activeMaterial;
+
+    const identity = resolveTenantRootIdentityV1({
+      kind: 'ecdsa_b5_active_material',
+      activeMaterial,
+    });
+    if (!identity.ok) {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: identity.message,
+      };
+    }
+
+    try {
+      const tenantRoot = await this.tenantRootCustodyLineage.resolveActiveLineage(
+        identity.identity,
+      );
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'ECDSA tenant root is not active',
+        };
+      }
+      return { ok: true, ...tenantRoot };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: error instanceof Error ? error.message : 'ECDSA tenant-root lookup failed',
       };
     }
   }
@@ -2529,10 +2712,7 @@ export class CloudflareD1WalletRegistrationService {
       }
       const issuedAtMs = Date.now();
       const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
-      const remainingUses = Math.min(
-        DEFAULT_WALLET_SESSION_REMAINING_USES,
-        policy.remainingUses,
-      );
+      const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, policy.remainingUses);
       await assertDirectWalletSessionOwnerProof({
         proof: authorization.proof,
         tenantId: this.authorizationTenantId,
@@ -2544,18 +2724,17 @@ export class CloudflareD1WalletRegistrationService {
       /* A refresh replaces the same method's session under a fresh mint;
          the direct issuer retires the predecessor and closes its quota in
          the successor transaction. */
-      const directIssue =
-        await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
-          tenantId: this.authorizationTenantId,
-          principalId: walletSessionPrincipalId(authority),
-          walletId: activeAuthority.authority.walletId,
-          authority: activeAuthority.authority,
-          walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
-          mintId: requireWalletSessionMintId(authorization.verifiedChallengeId),
-          remainingUses,
-          issuedAtMs,
-          expiresAtMs,
-        });
+      const directIssue = await this.authorizationService.issueDirectWalletSessionAuthorizationV2({
+        tenantId: this.authorizationTenantId,
+        principalId: walletSessionPrincipalId(authority),
+        walletId: activeAuthority.authority.walletId,
+        authority: activeAuthority.authority,
+        walletAuthMethodId: activeAuthority.authMethod.walletAuthMethodId,
+        mintId: requireWalletSessionMintId(authorization.verifiedChallengeId),
+        remainingUses,
+        issuedAtMs,
+        expiresAtMs,
+      });
       if (directIssue.kind === 'already_committed') {
         return ed25519AlreadyCommittedWalletSessionResponse(directIssue);
       }
@@ -3286,12 +3465,31 @@ export class CloudflareD1WalletRegistrationService {
         };
       }
 
+      const tenantRootIdentity = registrationTenantRootIdentity(ceremony.preparedContext);
+      if (!tenantRootIdentity) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration has no authoritative tenant-root identity',
+        };
+      }
+      const tenantRoot =
+        await this.tenantRootCustodyLineage.resolveActiveLineage(tenantRootIdentity);
+      if (!tenantRoot) {
+        return {
+          ok: false,
+          code: 'invalid_state',
+          message: 'ECDSA registration tenant root is not active',
+        };
+      }
+
       /* Both Router calls are authority-bound and independent of each other. */
       const routerStartedAtMs = Date.now();
       const nearEd25519Branch = registrationSignerBranchesFromPlan(ceremony.signerPlan).nearEd25519;
       const [strictResult, ed25519Admission] = await Promise.all([
-        this.ecdsaStrictRegistration.register({
+        this.ecdsaStrictRegistration.registerWithTenantRoot({
           request: strictRegistration,
+          tenantRoot,
           requestPolicy: {
             policyVersion: WALLET_REGISTRATION_ROUTER_POLICY_VERSION,
             requestDigestB64u: input.ecdsa.requestDigestB64u,

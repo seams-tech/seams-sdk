@@ -73,7 +73,6 @@ function createRuntimeFixture(): RuntimeFixture {
   writeEnv(root, '.env.router-ab.router.local', router);
   writeEnv(root, '.env.router-ab.deriver-a.local', {
     DERIVER_A_URL: router.DERIVER_A_URL,
-    DERIVER_A_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'33'.repeat(32)}`,
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: deriverA.privateKeyHex,
     DERIVER_A_PEER_SIGNING_KEY: DERIVER_A_PEER_SIGNING_KEY,
     DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
@@ -81,7 +80,6 @@ function createRuntimeFixture(): RuntimeFixture {
   });
   writeEnv(root, '.env.router-ab.deriver-b.local', {
     DERIVER_B_URL: router.DERIVER_B_URL,
-    DERIVER_B_ROOT_SHARE_WIRE_SECRET: `mpc-prf-root-share-wire-v1:${'44'.repeat(32)}`,
     DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY: deriverB.privateKeyHex,
     DERIVER_B_PEER_SIGNING_KEY: DERIVER_B_PEER_SIGNING_KEY,
     DERIVER_A_PEER_VERIFYING_KEY: localPeerVerifyingKeyHex(DERIVER_A_PEER_SIGNING_KEY),
@@ -253,6 +251,7 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     { role: 'deriver-a', port: 4103 },
     { role: 'deriver-b', port: 4104 },
     { role: 'signing-worker', port: 4105 },
+    { role: 'tenant-root-control-plane', port: 4106 },
   ]);
 
   const routerConfig = readFileSync(runtime.configs[0].configPath, 'utf8');
@@ -289,7 +288,6 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(deriverASecretFile).toContain(
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:',
   );
-  expect(deriverASecretFile).not.toContain('DERIVER_B_ROOT_SHARE_WIRE_SECRET');
   expect(deriverASecretFile).not.toContain('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY');
   expect(deriverASecretFile).not.toContain('dev-only-generated');
   expect(deriverASecretFile).toContain(
@@ -324,7 +322,6 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY=hpke-x25519-server-output-private-v1:',
   );
-  expect(signingWorkerSecretFile).not.toContain('DERIVER_A_ROOT_SHARE_WIRE_SECRET');
   expect(signingWorkerSecretFile).toContain(
     'SIGNING_WORKER_PRIVATE_D1_KEK=hpke-x25519-server-output-private-v1:',
   );
@@ -366,7 +363,14 @@ test('local Gateway startup renders the production-shaped MPC Worker topology', 
     '00000000-0000-0000-0000-0000000094a1',
     '00000000-0000-0000-0000-0000000094b1',
     '00000000-0000-0000-0000-0000000094c1',
+    undefined,
   ]);
+  expect(runtime.configs[4]).toMatchObject({
+    role: 'tenant-root-control-plane',
+    port: 4106,
+    url: 'http://127.0.0.1:4106',
+    privateD1: null,
+  });
   expect(runtime.configs[3].privateD1).toEqual({
     databaseName: 'router-ab-signing-worker-private',
     migrationsDirectory: 'signing-worker',

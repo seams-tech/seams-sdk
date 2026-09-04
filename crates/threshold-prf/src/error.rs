@@ -32,6 +32,22 @@ pub enum ThresholdPrfError {
     InvalidDleqProofEncoding,
     /// A DLEQ proof failed verification.
     InvalidDleqProof,
+    /// A role-target bundle carried a peer commitment other than the expected current one.
+    UnexpectedPeerCommitment,
+    /// A fixed two-party refresh role or role pairing was invalid.
+    InvalidRefreshRole,
+    /// A refresh contribution failed its source, recipient, scalar, or commitment check.
+    InvalidRefreshContribution,
+    /// The combined refresh contribution would leave both shares unchanged.
+    RefreshNoOp,
+    /// A refreshed share pair did not preserve the public root commitment.
+    RefreshContinuityMismatch,
+    /// A public two-party root commitment was the identity or malformed.
+    InvalidRootCommitment,
+    /// A root-share knowledge proof did not match its fixed wire format.
+    InvalidKnowledgeProofEncoding,
+    /// A root-share knowledge proof failed verification.
+    InvalidKnowledgeProof,
 }
 
 impl fmt::Display for ThresholdPrfError {
@@ -66,6 +82,22 @@ impl fmt::Display for ThresholdPrfError {
                 f.write_str("invalid threshold PRF DLEQ proof encoding")
             }
             Self::InvalidDleqProof => f.write_str("invalid threshold PRF DLEQ proof"),
+            Self::UnexpectedPeerCommitment => {
+                f.write_str("threshold PRF peer commitment is not the expected current commitment")
+            }
+            Self::InvalidRefreshRole => f.write_str("invalid two-party refresh role"),
+            Self::InvalidRefreshContribution => {
+                f.write_str("invalid two-party root-share refresh contribution")
+            }
+            Self::RefreshNoOp => f.write_str("root-share refresh contribution is a no-op"),
+            Self::RefreshContinuityMismatch => {
+                f.write_str("root-share refresh changed the public root commitment")
+            }
+            Self::InvalidRootCommitment => f.write_str("invalid two-party public root commitment"),
+            Self::InvalidKnowledgeProofEncoding => {
+                f.write_str("invalid root-share knowledge-proof encoding")
+            }
+            Self::InvalidKnowledgeProof => f.write_str("invalid root-share knowledge proof"),
         }
     }
 }

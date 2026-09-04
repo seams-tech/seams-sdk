@@ -69,6 +69,24 @@ const BACKEND_SMOKE_PATHS = Object.freeze([
   '/router-ab/ecdsa-derivation/healthz',
 ]);
 const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:
+    'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+    'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+    'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+  ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+    'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+  ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+  ROUTER_AB_OPERATIONS_INCIDENT_VERIFYING_KEY_HEX:
+    'OPERATIONS_INCIDENT_VERIFYING_KEY_HEX',
+  ROUTER_AB_DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX:
+    'DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
+  ROUTER_AB_DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX:
+    'DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
   ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: 'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
   ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX: 'DERIVER_A_PEER_VERIFYING_KEY_HEX',
   ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: 'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
@@ -84,6 +102,26 @@ const PREFLIGHT_VARIABLE_ALIASES = Object.freeze({
   ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
   ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION: 'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+  ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+    'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+  ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
 });
 const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
   'signing-worker': Object.freeze({
@@ -257,15 +295,28 @@ function printPlan(lane) {
     '',
     'Order:',
     '  1. build all backend components once and require the lane branch',
-    '  2. preflight all seven backend components',
+    '  2. preflight all eight backend components',
     `  3. migrate ${lane.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${lane.resources.gateway.signerD1Name} (signer D1)`,
     '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
-    '  6. deploy router after all three workers complete',
-    '  7. deploy wallet-runtime after router',
-    '  8. deploy console after wallet-runtime',
-    '  9. deploy gateway after router and console',
-    '  10. smoke Gateway, Console, and Router A/B endpoints',
+    // Upgrade order for an EXISTING environment. Cloudflare requires a service
+    // binding's target to exist before deploying the caller, so the control
+    // plane precedes the Router; its own external Durable Object binding
+    // resolves against the Router already deployed there.
+    //
+    // A FRESH environment has a bootstrap cycle (control plane -> Router DO,
+    // Router -> control plane service). It needs three stages: provision Router
+    // and its DO namespace without the TENANT_ROOT_CONTROL_PLANE service
+    // binding, deploy the control plane, then deploy the final Router config.
+    // Not implemented: every lane in deployment/targets.json is already
+    // provisioned with a Router. Deployment-only sequencing either way; no
+    // runtime compatibility path is required.
+    '  6. deploy tenant-root-control-plane after the three workers (the Router service binding added in step 7 names it)',
+    '  7. deploy router after the control plane and all three workers complete',
+    '  8. deploy wallet-runtime after router',
+    '  9. deploy console after wallet-runtime',
+    '  10. deploy gateway after router and console',
+    '  11. smoke Gateway, Console, and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -306,7 +357,13 @@ function buildBackend(lane) {
       DEPLOYMENT_LANE: lane.id,
       ROUTER_AB_WORKER_BUILD_PROFILE: 'release',
     });
-    for (const role of ['signing-worker', 'deriver-a', 'deriver-b', 'router']) {
+    for (const role of [
+      'signing-worker',
+      'deriver-a',
+      'deriver-b',
+      'router',
+      'tenant-root-control-plane',
+    ]) {
       runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', `build:${role}`], {
         env: routerEnvironment,
       });
@@ -402,8 +459,8 @@ function hasRouterSource() {
 }
 
 function isRouterRuntimeRoot(directory) {
-  return ['router', 'deriver-a', 'deriver-b', 'signing-worker'].every((role) =>
-    fs.existsSync(path.join(directory, 'build', role, 'worker', 'shim.mjs')),
+  return ['router', 'deriver-a', 'deriver-b', 'signing-worker', 'tenant-root-control-plane'].every(
+    (role) => fs.existsSync(path.join(directory, 'build', role, 'worker', 'shim.mjs')),
   );
 }
 
@@ -502,6 +559,7 @@ function assertLaneResourceBindings(lane, component) {
     'deriver-a': 'deriverA',
     'deriver-b': 'deriverB',
     router: 'router',
+    'tenant-root-control-plane': 'tenantRootControlPlane',
   }[component];
   if (!resourceKey) throw new Error(`Unsupported backend component: ${component}`);
   const resource = lane.resources[resourceKey];
@@ -514,6 +572,72 @@ function assertLaneResourceBindings(lane, component) {
   requireConfigLine(section, 'name', resource.workerName, `${lane.id}/${component} Worker`);
   assertExpectedWorkerServices(lane, component, section);
   assertExpectedPrivateD1Binding(lane, component, section);
+  assertExpectedDurableObjectBindings(lane, component, section);
+}
+
+// A dropped or renamed Durable Object binding silently orphans tenant-root
+// state, and a wrong script_name points a Deriver or the control plane at the
+// wrong Router. Nothing checked either before this.
+export function assertExpectedDurableObjectBindings(lane, component, section) {
+  const routerScript = lane.resources.router.workerName;
+  const expected = {
+    router: { scriptName: undefined },
+    'deriver-a': { scriptName: routerScript },
+    'deriver-b': { scriptName: routerScript },
+    'tenant-root-control-plane': { scriptName: routerScript },
+    'signing-worker': undefined,
+  }[component];
+  if (!expected) return;
+  const bindings = parseWranglerDurableObjectBindings(section);
+  const binding = bindings.get('ROUTER_TENANT_ROOT_CREATION_DO');
+  if (!binding) {
+    throw new Error(
+      `${lane.id}/${component} must bind ROUTER_TENANT_ROOT_CREATION_DO to RouterAbTenantRootCreationDurableObject`,
+    );
+  }
+  if (binding.className !== 'RouterAbTenantRootCreationDurableObject') {
+    throw new Error(
+      `${lane.id}/${component} must bind ROUTER_TENANT_ROOT_CREATION_DO to RouterAbTenantRootCreationDurableObject`,
+    );
+  }
+  if (binding.scriptName !== expected.scriptName) {
+    throw new Error(
+      expected.scriptName
+        ? `${lane.id}/${component} must bind ROUTER_TENANT_ROOT_CREATION_DO to script ${expected.scriptName}`
+        : `${lane.id}/${component} owns ROUTER_TENANT_ROOT_CREATION_DO and must not set script_name`,
+    );
+  }
+  // Only the owning Router may declare the class migration. Wrangler declares
+  // [[migrations]] once at the top level and named environments inherit it, so
+  // this is a "must not" for non-owners rather than a "must" for the Router.
+  if (expected.scriptName && /^new_sqlite_classes\s*=/mu.test(section)) {
+    throw new Error(
+      `${lane.id}/${component} must not declare a Durable Object migration it does not own`,
+    );
+  }
+}
+
+export function parseWranglerDurableObjectBindings(section) {
+  const bindings = new Map();
+  // Both the inline array form and the [[...durable_objects.bindings]] table form.
+  for (const match of section.matchAll(
+    /\{[^}]*?name\s*=\s*"([^"]+)"[^}]*?class_name\s*=\s*"([^"]+)"([^}]*?)\}/gu,
+  )) {
+    const scriptName = /script_name\s*=\s*"([^"]+)"/u.exec(match[3]);
+    bindings.set(match[1], { className: match[2], scriptName: scriptName?.[1] });
+  }
+  for (const match of section.matchAll(
+    /\[\[(?:env\.[^.\]]+\.)?durable_objects\.bindings\]\]\n((?:[a-z_]+\s*=\s*"[^"]*"\n)+)/gu,
+  )) {
+    const body = match[1];
+    const name = /^name\s*=\s*"([^"]+)"/mu.exec(body);
+    const className = /^class_name\s*=\s*"([^"]+)"/mu.exec(body);
+    const scriptName = /^script_name\s*=\s*"([^"]+)"/mu.exec(body);
+    if (name && className) {
+      bindings.set(name[1], { className: className[1], scriptName: scriptName?.[1] });
+    }
+  }
+  return bindings;
 }
 
 function readWranglerWorkerSection(source, deploymentEnvironment) {
@@ -544,10 +668,14 @@ export function assertExpectedWorkerServices(lane, component, section) {
       ['DERIVER_A', lane.resources.deriverA.workerName],
       ['DERIVER_B', lane.resources.deriverB.workerName],
       ['SIGNING_WORKER', lane.resources.signingWorker.workerName],
+      ['TENANT_ROOT_CONTROL_PLANE', lane.resources.tenantRootControlPlane.workerName],
     ],
     'deriver-a': [['DERIVER_B', lane.resources.deriverB.workerName]],
     'deriver-b': [['DERIVER_A', lane.resources.deriverA.workerName]],
     'signing-worker': [],
+    // The control plane reaches the Router-owned creation Durable Object through
+    // an external DO binding, not a service binding; it calls no Worker.
+    'tenant-root-control-plane': [],
   }[component];
   const serviceBindings = parseWranglerServiceBindings(section);
   for (const [binding, service] of expectedServices) {
@@ -663,8 +791,17 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
       ];
     case 'deriver-b':
       return [
@@ -672,8 +809,17 @@ function componentRuntimeRequirements(lane, component) {
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
         'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
       ];
     case 'router':
       return [
@@ -683,7 +829,21 @@ function componentRuntimeRequirements(lane, component) {
         'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
         'DERIVER_A_PEER_VERIFYING_KEY_HEX',
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
         ...(lane.network === 'mainnet' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
+      ];
+    case 'tenant-root-control-plane':
+      return [
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        'OPERATIONS_INCIDENT_VERIFYING_KEY_HEX',
+        'DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
+        'DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX',
+        // Genesis: the authorities this issuer accepts and the retained public
+        // role keyset whose active selectors name each ceremony signer.
+        'TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
       ];
     case 'gateway':
     case 'wallet-runtime':
@@ -751,6 +911,9 @@ function deployBackend(lane, component) {
     case 'router':
       deployMpcRouter(lane);
       return;
+    case 'tenant-root-control-plane':
+      deployTenantRootControlPlane(lane);
+      return;
     case 'wallet-runtime':
       deployWalletRuntime(lane);
       return;
@@ -780,6 +943,25 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
         environment,
       );
+      assertX25519KeyPair(
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertEd25519RoleKeySet(
+        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
+        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+        'deriver_a',
+        environment,
+      );
       return;
     case 'deriver-b':
       assertX25519KeyPair(
@@ -792,6 +974,25 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_B_ROLE_PRIVATE_D1_KEK',
         'hpke-x25519-role-private-d1-private-v1:',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertX25519KeyPair(
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        'hpke-x25519-private-v1:',
+        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
+        environment,
+      );
+      assertEd25519RoleKeySet(
+        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
+        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
+        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+        'deriver_b',
         environment,
       );
       return;
@@ -809,6 +1010,14 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         environment,
       );
       return;
+    case 'tenant-root-control-plane':
+      assertEd25519IssuerKeySet(
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
+        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+        environment,
+      );
+      return;
     case 'gateway':
     case 'router':
     case 'console':
@@ -817,6 +1026,172 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
+}
+
+// Ed25519 seed (base64url, 32 bytes) must reproduce the verifying key that the
+// public keyset publishes under the configured key id. Mirrors the X25519
+// pairing check so a mismatched issuer never deploys.
+export function assertEd25519IssuerKeySet(secretName, keyIdName, keySetName, environment) {
+  const seedText = String(environment[secretName] || '');
+  const keyId = String(environment[keyIdName] || '').trim();
+  const keySetText = String(environment[keySetName] || '');
+  if (!seedText) throw new Error(`${secretName} is required`);
+  if (!keyId) throw new Error(`${keyIdName} is required`);
+  const seed = Buffer.from(seedText, 'base64url');
+  if (seed.length !== 32 || Buffer.from(seed).toString('base64url') !== seedText) {
+    throw new Error(`${secretName} must be a base64url 32-byte Ed25519 seed`);
+  }
+  let keySet;
+  try {
+    keySet = JSON.parse(keySetText);
+  } catch {
+    throw new Error(`${keySetName} must be valid JSON`);
+  }
+  if (
+    !keySet ||
+    typeof keySet !== 'object' ||
+    !Array.isArray(keySet.keys) ||
+    Object.keys(keySet).length !== 1 ||
+    keySet.keys.length < 1 ||
+    keySet.keys.length > 32
+  ) {
+    throw new Error(`${keySetName} must be {"keys":[...]} with between one and 32 keys`);
+  }
+  const ids = new Set();
+  let published;
+  for (const entry of keySet.keys) {
+    if (
+      !entry ||
+      typeof entry !== 'object' ||
+      Object.keys(entry).length !== 2 ||
+      typeof entry.issuer_key_id !== 'string' ||
+      typeof entry.verifying_key_hex !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(entry.verifying_key_hex)
+    ) {
+      throw new Error(
+        `${keySetName} entries must carry issuer_key_id and a 32-byte lowercase verifying_key_hex`,
+      );
+    }
+    if (ids.has(entry.issuer_key_id)) {
+      throw new Error(`${keySetName} repeats issuer key id ${entry.issuer_key_id}`);
+    }
+    ids.add(entry.issuer_key_id);
+    if (entry.issuer_key_id === keyId) published = entry.verifying_key_hex;
+  }
+  if (!published) throw new Error(`${keySetName} does not contain ${keyIdName} ${keyId}`);
+  // PKCS#8 wrapper for a raw Ed25519 seed: fixed 16-byte prefix + seed.
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]);
+  const privateKey = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  const derived = decodeBase64UrlFixed(
+    createPublicKey(privateKey).export({ format: 'jwk' }).x,
+    32,
+    `${secretName} public key`,
+  ).toString('hex');
+  if (derived !== published) {
+    throw new Error(`${secretName} does not match ${keySetName} entry ${keyId}`);
+  }
+}
+
+// A Deriver's role creation seed must reproduce the verifying key the role
+// keyset publishes under its role and key id. The keyset carries both roles,
+// so the entry is selected by role first and its id must match exactly.
+export function assertEd25519RoleKeySet(secretName, keyIdName, keySetName, role, environment) {
+  const seedText = String(environment[secretName] || '');
+  const keyId = String(environment[keyIdName] || '').trim();
+  const keySetText = String(environment[keySetName] || '');
+  if (!seedText) throw new Error(`${secretName} is required`);
+  if (!keyId) throw new Error(`${keyIdName} is required`);
+  const seed = Buffer.from(seedText, 'base64url');
+  if (seed.length !== 32 || Buffer.from(seed).toString('base64url') !== seedText) {
+    throw new Error(`${secretName} must be a base64url 32-byte Ed25519 seed`);
+  }
+  let keySet;
+  try {
+    keySet = JSON.parse(keySetText);
+  } catch {
+    throw new Error(`${keySetName} must be valid JSON`);
+  }
+  if (
+    !keySet ||
+    typeof keySet !== 'object' ||
+    !Array.isArray(keySet.keys) ||
+    Object.keys(keySet).length !== 3 ||
+    !Object.hasOwn(keySet, 'active_deriver_a_signing_key_id') ||
+    !Object.hasOwn(keySet, 'active_deriver_b_signing_key_id') ||
+    typeof keySet.active_deriver_a_signing_key_id !== 'string' ||
+    typeof keySet.active_deriver_b_signing_key_id !== 'string' ||
+    keySet.keys.length < 2 ||
+    keySet.keys.length > 64
+  ) {
+    throw new Error(
+      `${keySetName} must carry both active role selectors and between two and 64 keys`,
+    );
+  }
+  const ids = new Set();
+  const verifiers = new Set();
+  const roleIds = new Map([
+    ['deriver_a', new Set()],
+    ['deriver_b', new Set()],
+  ]);
+  let published;
+  for (const entry of keySet.keys) {
+    if (
+      !entry ||
+      typeof entry !== 'object' ||
+      Object.keys(entry).length !== 3 ||
+      (entry.role !== 'deriver_a' && entry.role !== 'deriver_b') ||
+      typeof entry.signing_key_id !== 'string' ||
+      typeof entry.verifying_key_hex !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(entry.verifying_key_hex)
+    ) {
+      throw new Error(
+        `${keySetName} entries must carry role, signing_key_id, and a 32-byte lowercase verifying_key_hex`,
+      );
+    }
+    if (ids.has(entry.signing_key_id)) {
+      throw new Error(`${keySetName} repeats signing key id ${entry.signing_key_id}`);
+    }
+    if (verifiers.has(entry.verifying_key_hex)) {
+      throw new Error(`${keySetName} repeats a verifying key across entries`);
+    }
+    ids.add(entry.signing_key_id);
+    verifiers.add(entry.verifying_key_hex);
+    roleIds.get(entry.role).add(entry.signing_key_id);
+    if (entry.role === role && entry.signing_key_id === keyId) published = entry.verifying_key_hex;
+  }
+  for (const [publishedRole, activeField] of [
+    ['deriver_a', 'active_deriver_a_signing_key_id'],
+    ['deriver_b', 'active_deriver_b_signing_key_id'],
+  ]) {
+    if (!roleIds.get(publishedRole).has(keySet[activeField])) {
+      throw new Error(`${keySetName} ${activeField} does not name a retained ${publishedRole} key`);
+    }
+  }
+  const activeField =
+    role === 'deriver_a'
+      ? 'active_deriver_a_signing_key_id'
+      : 'active_deriver_b_signing_key_id';
+  if (keySet[activeField] !== keyId) {
+    throw new Error(`${keyIdName} ${keyId} is not the active key for ${role}`);
+  }
+  if (!published)
+    throw new Error(`${keySetName} does not publish ${keyIdName} ${keyId} for ${role}`);
+  const pkcs8 = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]);
+  const privateKey = createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  const derived = decodeBase64UrlFixed(
+    createPublicKey(privateKey).export({ format: 'jwk' }).x,
+    32,
+    `${secretName} public key`,
+  ).toString('hex');
+  if (derived !== published) {
+    throw new Error(`${secretName} does not match ${keySetName} entry ${keyId}`);
+  }
+}
+
+function decodeBase64UrlFixed(value, expectedLength, label) {
+  const bytes = Buffer.from(String(value || ''), 'base64url');
+  if (bytes.length !== expectedLength) throw new Error(`${label} must be ${expectedLength} bytes`);
+  return bytes;
 }
 
 function assertX25519KeyPair(privateName, privatePrefix, publicName, environment) {
@@ -872,17 +1247,21 @@ function deployDeriver(lane, role) {
   const resource = role === 'a' ? lane.resources.deriverA : lane.resources.deriverB;
   const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
-  putWorkerSecret(resource, `${prefix}_ROOT_SHARE_WIRE_SECRET`);
   putWorkerSecret(resource, `${prefix}_ENVELOPE_HPKE_PRIVATE_KEY`);
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
   putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
+  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`);
+  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`);
+  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY`);
   const component = `deriver-${role}`;
   const configPath = renderPrivateD1WorkerConfig(lane, resource, component);
   migratePrivateD1(resource, configPath, component);
   const args = workerDeployArguments(resource, configPath);
   args.push(
     '--var',
-    `${prefix}_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_ENVELOPE_HPKE_PUBLIC_KEY`)}`,
+    `DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY')}`,
+    '--var',
+    `DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:${requireEnvironmentValue('DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY')}`,
     '--var',
     `DERIVER_A_PEER_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_A_PEER_VERIFYING_KEY_HEX')}`,
     '--var',
@@ -893,6 +1272,56 @@ function deployDeriver(lane, role) {
     `DERIVER_ROLE_PRIVATE_D1_KEK_VERSION:${requireEnvironmentValue(`${prefix}_ROLE_PRIVATE_D1_KEK_VERSION`)}`,
     '--var',
     `DERIVER_ROLE_PRIVATE_D1_ENVIRONMENT:${lane.id}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY`)}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`,
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY_BINDING:${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY`,
+    '--var',
+    `${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY_ID:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`)}`,
+    '--var',
+    `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
+  );
+  runRouterCommand(args);
+}
+
+function deployTenantRootControlPlane(lane) {
+  // Sole holder of the R120 issuer private signing key. In an existing
+  // environment the Router already exists, so this Worker's external Durable
+  // Object binding resolves immediately; it deploys BEFORE the Router so the
+  // Router's service binding to it resolves on the Router's next deploy.
+  const resource = lane.resources.tenantRootControlPlane;
+  putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  putWorkerSecret(resource, 'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY');
+  const args = workerDeployArguments(resource);
+  args.push(
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID')}`,
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `OPERATIONS_INCIDENT_VERIFYING_KEY_HEX:${requireEnvironmentValue('OPERATIONS_INCIDENT_VERIFYING_KEY_HEX')}`,
+    '--var',
+    `DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX')}`,
+    '--var',
+    `DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX')}`,
+    '--var',
+    `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
   );
   runRouterCommand(args);
 }
@@ -918,6 +1347,10 @@ function deployMpcRouter(lane) {
     `DERIVER_B_PEER_VERIFYING_KEY_HEX:${requireEnvironmentValue('DERIVER_B_PEER_VERIFYING_KEY_HEX')}`,
     '--var',
     `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${requireEnvironmentValue('SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY')}`,
+    '--var',
+    `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
+    '--var',
+    `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
   );
   if (lane.network === 'mainnet') {
     args.push(

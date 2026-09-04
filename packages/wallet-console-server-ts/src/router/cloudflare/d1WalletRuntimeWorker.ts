@@ -1,12 +1,12 @@
 import type { CfExecutionContext } from '@seams/wallet-server/cloud-host';
 import {
   handleSplitGatewayWalletRuntimeRequest,
-  type CloudflareD1GatewayBaseEnv,
+  type CloudflareD1GatewayEnv,
 } from './d1RouterApiStagingWorker';
 
 async function fetch(
   request: Request,
-  env: CloudflareD1GatewayBaseEnv,
+  env: CloudflareD1GatewayEnv,
   _ctx: CfExecutionContext,
 ): Promise<Response> {
   const response = await handleSplitGatewayWalletRuntimeRequest(request, env);

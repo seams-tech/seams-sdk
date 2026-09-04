@@ -195,6 +195,10 @@ function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoo
         binding: 'WALLET_RUNTIME',
         service: walletRuntimeWorkerNameFor(resources.workerName),
       },
+      {
+        binding: 'MPC_ROUTER',
+        service: deployment.serviceNames.mpcRouter,
+      },
     ],
     triggers: {
       crons: ['* * * * *'],

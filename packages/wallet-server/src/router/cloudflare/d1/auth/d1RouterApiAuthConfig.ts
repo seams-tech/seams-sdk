@@ -12,6 +12,7 @@ import { EMAIL_OTP_CODE_LENGTH } from '../../../../core/authService/emailOtpConf
 import type { RouterAbEcdsaPresignRuntime } from '../../../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import type { TenantRootCustodyLineageResolverV1 } from '../../../domains/tenantRoot/tenantRootCustodyLineage';
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
@@ -182,6 +183,7 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  readonly tenantRootCustodyLineage: TenantRootCustodyLineageResolverV1;
   readonly linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1;
 }
 
@@ -352,6 +354,7 @@ export function normalizeD1RouterApiAuthOptions(
     routerAbEcdsaPresignRuntime: input.routerAbEcdsaPresignRuntime,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
     ecdsaStrictRegistration: input.ecdsaStrictRegistration,
+    tenantRootCustodyLineage: input.tenantRootCustodyLineage,
     linkedDevice: input.linkedDevice,
   };
 }

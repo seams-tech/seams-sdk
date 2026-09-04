@@ -1302,7 +1302,7 @@ async fn activate_output_v1(
                 selected_server.server_id.clone(),
                 activation_context.transcript_digest(),
                 stored_active_state,
-                false,
+                true,
             )?,
         },
     )

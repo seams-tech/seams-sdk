@@ -13,6 +13,19 @@ database_name = "router-ab-deriver-a-private"
 database_id = "__PRODUCTION_MAINNET_DERIVER_A_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-a"
 
+[[r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-a-tenant-root-managed-backup"
+
+# R120: read authoritative tenant-root creation state directly from the
+# Router-owned Durable Object. The class, namespace, migrations and storage
+# stay owned by the Router manifest; this is an external binding, and the
+# object independently verifies every signed command it is given.
+[[durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router"
+
 [[services]]
 binding = "DERIVER_B"
 service = "router-ab-deriver-b"
@@ -21,9 +34,9 @@ service = "router-ab-deriver-b"
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 DERIVER_ROLE_PRIVATE_D1_KEK_BINDING = "DERIVER_A_ROLE_PRIVATE_D1_KEK"
 DERIVER_ROLE_PRIVATE_D1_ROLE = "deriver_a"
-DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
 DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
+DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
 DERIVER_A_PEER_SIGNING_KEY_BINDING = "DERIVER_A_PEER_SIGNING_KEY"
 DERIVER_A_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 DERIVER_B_PEER_BINDING = "DERIVER_B"
@@ -39,6 +52,15 @@ database_name = "router-ab-deriver-a-staging-private"
 database_id = "__STAGING_TESTNET_DERIVER_A_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-a"
 
+[[env.staging.r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-a-staging-tenant-root-managed-backup"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router-staging"
+
 [[env.staging.services]]
 binding = "DERIVER_B"
 service = "router-ab-deriver-b-staging"
@@ -47,10 +69,10 @@ service = "router-ab-deriver-b-staging"
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 DERIVER_ROLE_PRIVATE_D1_KEK_BINDING = "DERIVER_A_ROLE_PRIVATE_D1_KEK"
 DERIVER_ROLE_PRIVATE_D1_ROLE = "deriver_a"
-DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
 DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
 DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY = "x25519:2693d0896a85398a7bef705c714590bbd99e0c91be62323d33c421d5be597257"
+DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
 DERIVER_A_PEER_SIGNING_KEY_BINDING = "DERIVER_A_PEER_SIGNING_KEY"
 DERIVER_A_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 DERIVER_A_PEER_VERIFYING_KEY_HEX = "d6d21d388a92e6eb9d85d9fcdbcba81c383d7102717b7160fab5e2b501555907"
@@ -68,6 +90,15 @@ database_name = "router-ab-deriver-a-testnet-private"
 database_id = "__PRODUCTION_TESTNET_DERIVER_A_PRIVATE_D1_ID__"
 migrations_dir = "migrations/deriver-a"
 
+[[env.production-testnet.r2_buckets]]
+binding = "TENANT_ROOT_MANAGED_BACKUP_BUCKET"
+bucket_name = "router-ab-deriver-a-testnet-tenant-root-managed-backup"
+
+[[env.production-testnet.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+script_name = "router-ab-mpc-router-testnet"
+
 [[env.production-testnet.services]]
 binding = "DERIVER_B"
 service = "router-ab-deriver-b-testnet"
@@ -76,9 +107,9 @@ service = "router-ab-deriver-b-testnet"
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
 DERIVER_ROLE_PRIVATE_D1_KEK_BINDING = "DERIVER_A_ROLE_PRIVATE_D1_KEK"
 DERIVER_ROLE_PRIVATE_D1_ROLE = "deriver_a"
-DERIVER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "DERIVER_A_ROOT_SHARE_WIRE_SECRET"
 DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
+DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
 DERIVER_A_PEER_SIGNING_KEY_BINDING = "DERIVER_A_PEER_SIGNING_KEY"
 DERIVER_A_PEER_SIGNING_KEY_EPOCH = "epoch-1"
 DERIVER_B_PEER_BINDING = "DERIVER_B"

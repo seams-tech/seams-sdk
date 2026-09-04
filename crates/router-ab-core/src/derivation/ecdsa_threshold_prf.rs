@@ -2,6 +2,7 @@ use core::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use threshold_prf::PrfPurpose;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::derivation::context::{DerivationContext, RootShareEpoch};
@@ -10,14 +11,9 @@ use crate::derivation::error::{
 };
 use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role};
 use crate::derivation::transcript::{transcript_digest_v1, TranscriptBinding};
+use crate::derivation::{StableTenantDerivationContextV2, TenantRootCustodyBindingV1};
 
-const MPC_PRF_CONTEXT_BYTES_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-bytes/v1";
 const MPC_PRF_CONTEXT_DIGEST_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-digest/v1";
-const FIXED_ECDSA_THRESHOLD_PRF_ADAPTER_SUITE_LABEL_V1: &[u8] =
-    b"threshold_prf_ristretto255_sha512";
-const FIXED_ECDSA_THRESHOLD_PRF_BACKEND_SUITE_LABEL_V1: &[u8] =
-    b"threshold-prf/ristretto255-sha512";
-const FIXED_ECDSA_THRESHOLD_PRF_OUTPUT_ENCODING_LABEL_V1: &[u8] = b"canonical_ed25519_scalar_32";
 
 /// Router/A/B threshold-PRF partial wire length: share id, context tag, compressed point.
 pub const MPC_PRF_PARTIAL_WIRE_V1_LEN: usize = 66;
@@ -55,6 +51,90 @@ impl MpcPrfOutputPurposeV1 {
     }
 }
 
+/// Pre-activation plan for stable tenant-root threshold-PRF evaluation.
+///
+/// The stable context bytes and custody binding digest are deliberately kept
+/// as separate values. The former is the PRF input; the latter authenticates
+/// the epoch-bound custody record outside that input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MpcPrfStablePurposeBindingPlanV2 {
+    purpose: PrfPurpose,
+    stable_context_digest: crate::derivation::TenantRootProtocolDigestV1,
+    custody_binding_digest: crate::derivation::TenantRootProtocolDigestV1,
+    threshold_prf_context_bytes: Vec<u8>,
+}
+
+impl MpcPrfStablePurposeBindingPlanV2 {
+    /// Returns the typed threshold-PRF purpose.
+    pub fn purpose(&self) -> &PrfPurpose {
+        &self.purpose
+    }
+
+    /// Returns the digest of the exact stable PRF context bytes.
+    pub const fn stable_context_digest(&self) -> crate::derivation::TenantRootProtocolDigestV1 {
+        self.stable_context_digest
+    }
+
+    /// Returns the digest of the independently authenticated custody binding.
+    pub const fn custody_binding_digest(&self) -> crate::derivation::TenantRootProtocolDigestV1 {
+        self.custody_binding_digest
+    }
+
+    /// Returns the exact bytes supplied to threshold-PRF.
+    pub fn threshold_prf_context_bytes(&self) -> &[u8] {
+        &self.threshold_prf_context_bytes
+    }
+}
+
+/// Plans stable tenant-root threshold-PRF input without wiring a runtime path.
+pub fn plan_mpc_prf_stable_purpose_binding_v2(
+    stable_context: &StableTenantDerivationContextV2,
+    custody_binding: &TenantRootCustodyBindingV1,
+    purpose: PrfPurpose,
+) -> RouterAbDerivationResult<MpcPrfStablePurposeBindingPlanV2> {
+    custody_binding.validate()?;
+    let stable_context_digest = stable_context.digest()?;
+    if custody_binding.stable_context_digest() != stable_context_digest {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::TranscriptMismatch,
+            "tenant-root custody binding does not match stable derivation context",
+        ));
+    }
+    let custody_binding_digest = custody_binding.digest()?;
+
+    plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+        stable_context,
+        custody_binding_digest,
+        purpose,
+    )
+}
+
+/// Plans stable threshold-PRF input from a custody digest authenticated by the caller.
+pub fn plan_mpc_prf_stable_purpose_binding_from_authenticated_custody_digest_v2(
+    stable_context: &StableTenantDerivationContextV2,
+    custody_binding_digest: crate::derivation::TenantRootProtocolDigestV1,
+    purpose: PrfPurpose,
+) -> RouterAbDerivationResult<MpcPrfStablePurposeBindingPlanV2> {
+    if matches!(
+        &purpose,
+        PrfPurpose::Ed25519DeriverAContributionRoot | PrfPurpose::Ed25519DeriverBContributionRoot
+    ) {
+        return Err(RouterAbDerivationError::new(
+            RouterAbDerivationErrorCode::MalformedInput,
+            "stable tenant PRF purpose must be an ECDSA Router/A/B purpose",
+        ));
+    }
+    let stable_context_digest = stable_context.digest()?;
+    let threshold_prf_context_bytes = stable_context.canonical_context_bytes();
+
+    Ok(MpcPrfStablePurposeBindingPlanV2 {
+        purpose,
+        stable_context_digest,
+        custody_binding_digest,
+        threshold_prf_context_bytes,
+    })
+}
+
 /// Purpose-binding plan for calling the fixed ECDSA threshold PRF.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MpcPrfPurposeBindingPlanV1 {
@@ -62,7 +142,7 @@ pub struct MpcPrfPurposeBindingPlanV1 {
     pub output_purpose: MpcPrfOutputPurposeV1,
     /// External `threshold-prf` purpose label.
     pub threshold_prf_purpose_label: String,
-    /// Transcript digest bound into the PRF context bytes.
+    /// Ceremony transcript digest retained for outer request and proof binding.
     pub transcript_digest: PublicDigest32,
     /// Digest of the exact PRF context bytes.
     pub threshold_prf_context_digest: PublicDigest32,
@@ -591,8 +671,8 @@ pub(crate) fn plan_mpc_prf_purpose_binding_for_output_v1(
 
     let output_purpose = MpcPrfOutputPurposeV1::from_output_request(request)?;
     let transcript_digest = transcript_digest_v1(transcript)?;
-    let threshold_prf_context_bytes =
-        encode_mpc_prf_context_bytes_v1(request, output_purpose, transcript_digest)?;
+    let stable_context = stable_context_from_transcript(transcript)?;
+    let threshold_prf_context_bytes = encode_mpc_prf_context_bytes_v1(&stable_context);
     let threshold_prf_context_digest = mpc_prf_context_digest_v1(&threshold_prf_context_bytes)?;
 
     Ok(MpcPrfPurposeBindingPlanV1 {
@@ -653,25 +733,16 @@ pub fn plan_mpc_prf_combine_v1(
     })
 }
 
-fn encode_mpc_prf_context_bytes_v1(
-    request: &MpcPrfOutputRequestV1,
-    output_purpose: MpcPrfOutputPurposeV1,
-    transcript_digest: PublicDigest32,
-) -> RouterAbDerivationResult<Vec<u8>> {
-    let mut out = Vec::new();
-    push_field(&mut out, MPC_PRF_CONTEXT_BYTES_VERSION_V1);
-    push_field(&mut out, FIXED_ECDSA_THRESHOLD_PRF_ADAPTER_SUITE_LABEL_V1);
-    push_field(&mut out, FIXED_ECDSA_THRESHOLD_PRF_BACKEND_SUITE_LABEL_V1);
-    push_field(
-        &mut out,
-        output_purpose.threshold_prf_purpose_label().as_bytes(),
-    );
-    push_field(&mut out, FIXED_ECDSA_THRESHOLD_PRF_OUTPUT_ENCODING_LABEL_V1);
-    push_field(&mut out, transcript_digest.as_bytes());
-    push_field(&mut out, request.opened_share_kind.as_str().as_bytes());
-    push_field(&mut out, request.recipient_role.as_str().as_bytes());
-    push_field(&mut out, request.recipient_identity.as_bytes());
-    Ok(out)
+fn encode_mpc_prf_context_bytes_v1(stable_context: &StableTenantDerivationContextV2) -> Vec<u8> {
+    stable_context.canonical_context_bytes()
+}
+
+fn stable_context_from_transcript(
+    transcript: &TranscriptBinding,
+) -> RouterAbDerivationResult<StableTenantDerivationContextV2> {
+    StableTenantDerivationContextV2::from_application_binding_digest_b64u(
+        transcript.context().account_scope().account_public_key(),
+    )
 }
 
 fn mpc_prf_context_digest_v1(context_bytes: &[u8]) -> RouterAbDerivationResult<PublicDigest32> {
@@ -683,12 +754,6 @@ fn mpc_prf_context_digest_v1(context_bytes: &[u8]) -> RouterAbDerivationResult<P
 
 fn require_mpc_context(context: &DerivationContext) -> RouterAbDerivationResult<()> {
     context.validate()
-}
-
-fn push_field(out: &mut Vec<u8>, value: &[u8]) {
-    let len = value.len() as u32;
-    out.extend_from_slice(&len.to_be_bytes());
-    out.extend_from_slice(value);
 }
 
 fn push_hash_field(hasher: &mut Sha256, value: &[u8]) {

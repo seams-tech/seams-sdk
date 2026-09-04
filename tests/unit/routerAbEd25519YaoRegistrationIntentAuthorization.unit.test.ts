@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { allocateWalletAuthMethodId, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
   deriveRouterAbEd25519YaoStableContextBindingV1,
   type RouterAbEd25519YaoActivationBindingV1,
@@ -56,6 +56,7 @@ function registrationIntent(input: {
   return {
     version: 'registration_intent_v1',
     walletId: walletIdFromString(input.walletId),
+    foundingWalletAuthMethodId: allocateWalletAuthMethodId('yao-registration-intent'),
     authMethod: {
       kind: 'passkey',
       rpId: webAuthnRpId('wallet.local'),

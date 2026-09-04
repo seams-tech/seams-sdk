@@ -257,6 +257,8 @@ export type DeviceLinkingEd25519SourcePreservingRouterPortV1 = {
   executeEd25519SourcePreservingV1(input: {
     readonly sourceBinding: LinkedDeviceEd25519SourceContributionPreparationV1['sourceBinding'];
     readonly targetRequest: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
+    readonly targetAdmission: LinkedDeviceEd25519SourceContributionPreparationV1['targetAdmission'];
+    readonly applicationBinding: LinkedDeviceEd25519SourceContributionPreparationV1['applicationBinding'];
     readonly participantIds: readonly [number, number];
   }): Promise<unknown>;
 };
@@ -772,6 +774,8 @@ async function handleSourceContributionExecute(
   const rawReservation = await router.executeEd25519SourcePreservingV1({
     sourceBinding: preparation.sourceBinding,
     targetRequest,
+    targetAdmission: preparation.targetAdmission,
+    applicationBinding: preparation.applicationBinding,
     participantIds: preparation.participantIds,
   });
   const reservation = parseBoundary(() =>
@@ -1053,11 +1057,7 @@ async function handleReceipt(
     const bearerToken = extractBearerCredential(ctx.request.headers);
     const hasDeviceProof = ctx.request.headers.has(LINKED_DEVICE_REQUEST_PROOF_HEADER_V1);
     if (bearerToken && !hasDeviceProof) {
-      const exact = await authenticateExactWalletSessionForAcknowledgement(
-        ctx,
-        bearerToken,
-        nowMs,
-      );
+      const exact = await authenticateExactWalletSessionForAcknowledgement(ctx, bearerToken, nowMs);
       if (exact.kind === 'denied') return authDeniedResponse(exact);
       await service.installationReceipt.acknowledgeLocalAuthorityActivationV1({
         acknowledgement,

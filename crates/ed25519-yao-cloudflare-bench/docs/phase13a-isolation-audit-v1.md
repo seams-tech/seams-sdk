@@ -1,18 +1,18 @@
 # Phase 13A benchmark isolation audit v1
 
-Recorded: July 13, 2026
+Recorded: August 31, 2026
 
 Result: **pass — the benchmark protocol is unreachable from production code in
 the audited workspace state**
 
 The fail-closed audit in `scripts/audit_benchmark_isolation.mjs` records:
 
-- four exact, authorized `ed25519-yao` dependents: the isolated Cloudflare
-  benchmark, the isolated WASM benchmark, the formal-verification harness, and
-  the circuit generator;
+- six exact, authorized `ed25519-yao` dependents: the isolated Cloudflare
+  benchmark, the isolated WASM benchmark, both formal-verification harnesses,
+  the Router A/B Ed25519-Yao adapter, and the circuit generator;
 - zero dependents on `ed25519-yao-cloudflare-bench`;
-- zero forbidden benchmark-protocol references across 5,743 product files;
-- 19 benchmark Wrangler configurations, all named and classified as
+- zero forbidden benchmark-protocol references across 3,188 product files;
+- 21 benchmark Wrangler configurations, all named and classified as
   non-production benchmark artifacts, with zero production routes;
 - unpublished core and benchmark crates, empty default feature sets, and
   compile-time gates around every passive benchmark export; and

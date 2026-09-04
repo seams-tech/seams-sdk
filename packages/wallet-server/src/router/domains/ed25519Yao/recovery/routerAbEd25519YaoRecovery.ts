@@ -53,6 +53,7 @@ import type {
   RouterApiWalletSessionAuthorizationV2AdmissionContext,
   RouterApiWalletSessionAuthorizationV2ExhaustedCandidateContext,
 } from '../../../framework/authServicePort';
+import type { RouterAbEd25519YaoRecoveryExecuteAdmissionContextV1 } from '../routerAbEd25519YaoGatewayEnvelope';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
 import {
   parseThresholdEd25519SessionId,
@@ -152,6 +153,7 @@ export interface RouterAbEd25519YaoRecoveryBackend {
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   executeRecovery(
     request: RecoveryExecuteRequest,
+    admissionRequest: RouterAbEd25519YaoRecoveryExecuteAdmissionContextV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRecoveryBackendResult> | RouterAbEd25519YaoRecoveryBackendResult;
   activateRecovery(
@@ -225,6 +227,7 @@ export type RouterAbEd25519YaoRecoveryExecuteClaimV1 = {
   readonly recoveryKey: string;
   readonly sessionId: string;
   readonly executeFingerprint: string;
+  readonly admissionRequest: RouterAbEd25519YaoRecoveryExecuteAdmissionContextV1;
 };
 
 export type RouterAbEd25519YaoRecoveryExecutePreparationV1 =
@@ -2056,7 +2059,11 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
         try {
           outcome = {
             kind: 'backend_response',
-            result: await this.backend.executeRecovery(request, traceContext),
+            result: await this.backend.executeRecovery(
+              request,
+              preparation.claim.admissionRequest,
+              traceContext,
+            ),
           };
         } catch (error: unknown) {
           return this.failUncertainExecution(preparation.claim, error);
@@ -2127,6 +2134,7 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
             recoveryKey: state.context.recoveryKey,
             sessionId,
             executeFingerprint,
+            admissionRequest: state.context.admissionRequest,
           },
         };
       }

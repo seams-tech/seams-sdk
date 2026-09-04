@@ -113,6 +113,20 @@ function createAuthorizationStore(
   });
 }
 
+class FirstWalletSessionMintReadMissStore extends CloudflareD1AuthorizationStore {
+  private missNextMintRead = true;
+
+  override async readWalletSessionAuthorizationV2ByMint(
+    input: Parameters<CloudflareD1AuthorizationStore['readWalletSessionAuthorizationV2ByMint']>[0],
+  ) {
+    if (this.missNextMintRead) {
+      this.missNextMintRead = false;
+      return null;
+    }
+    return await super.readWalletSessionAuthorizationV2ByMint(input);
+  }
+}
+
 function requiredMintId(value: string) {
   const parsed = parseWalletSessionMintId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -989,7 +1003,7 @@ test('hosted exchange routes require the dedicated wallet-origin policy and V2 w
   }
 });
 
-test('direct V2 issuance is replay-stable and exhausts the same-method predecessor atomically', async () => {
+test('direct V2 issuance is replay-stable across server time drift and a losing insert race', async () => {
   const temporary = createTemporaryD1Database();
   try {
     await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -1019,6 +1033,48 @@ test('direct V2 issuance is replay-stable and exhausts the same-method predecess
       walletSessionId: first.session.walletSessionId,
       quotaId: first.session.quotaId,
       next: 'unlock_exact_method',
+    });
+
+    const shiftedReplayInput = {
+      ...firstInput,
+      issuedAtMs: firstInput.issuedAtMs + 25,
+      expiresAtMs: firstInput.expiresAtMs + 25,
+    };
+    await expect(
+      service.issueDirectWalletSessionAuthorizationV2(shiftedReplayInput),
+    ).resolves.toMatchObject({
+      kind: 'already_committed',
+      authorizationId: first.session.authorizationId,
+      walletSessionId: first.session.walletSessionId,
+      quotaId: first.session.quotaId,
+    });
+    await expect(
+      service.issueDirectWalletSessionAuthorizationV2({
+        ...shiftedReplayInput,
+        expiresAtMs: shiftedReplayInput.expiresAtMs + 1,
+      }),
+    ).rejects.toThrow('Direct V2 Wallet Session mint replay does not match');
+
+    const racedStore = new FirstWalletSessionMintReadMissStore({
+      database: temporary.database,
+      namespace,
+      walletSignerScope: { namespace, ...DEFAULT_AUTHORIZATION_SCOPE },
+    });
+    const racedService = new AuthorizationService({
+      policy: capabilityPolicyPort,
+      sessions: racedStore,
+      evidence: racedStore,
+      grants: racedStore,
+      authorizedOperations: racedStore,
+      audit: racedStore,
+    });
+    await expect(
+      racedService.issueDirectWalletSessionAuthorizationV2(shiftedReplayInput),
+    ).resolves.toMatchObject({
+      kind: 'already_committed',
+      authorizationId: first.session.authorizationId,
+      walletSessionId: first.session.walletSessionId,
+      quotaId: first.session.quotaId,
     });
 
     const losingDigest = await digestOpaqueCredentialForTest('concurrent-losing-credential');

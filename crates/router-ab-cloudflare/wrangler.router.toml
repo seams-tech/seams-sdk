@@ -6,6 +6,15 @@ workers_dev = false
 [build]
 command = "cargo install -q worker-build --version 0.8.4 && bash ./scripts/build-strict-worker.sh router"
 
+[durable_objects]
+bindings = [
+  { name = "ROUTER_TENANT_ROOT_CREATION_DO", class_name = "RouterAbTenantRootCreationDurableObject" },
+]
+
+[[migrations]]
+tag = "router_ab_router_tenant_root_creation_v1"
+new_sqlite_classes = ["RouterAbTenantRootCreationDurableObject"]
+
 [[services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a"
@@ -17,6 +26,10 @@ service = "router-ab-deriver-b"
 [[services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker"
+
+[[services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane"
 
 [vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -33,6 +46,10 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 name = "router-ab-mpc-router-staging"
 workers_dev = true
 
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+
 [[env.staging.services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a-staging"
@@ -44,6 +61,10 @@ service = "router-ab-deriver-b-staging"
 [[env.staging.services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-staging"
+
+[[env.staging.services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane-staging"
 
 [env.staging.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"
@@ -66,6 +87,10 @@ SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
 name = "router-ab-mpc-router-testnet"
 workers_dev = true
 
+[[env.production-testnet.durable_objects.bindings]]
+name = "ROUTER_TENANT_ROOT_CREATION_DO"
+class_name = "RouterAbTenantRootCreationDurableObject"
+
 [[env.production-testnet.services]]
 binding = "DERIVER_A"
 service = "router-ab-deriver-a-testnet"
@@ -77,6 +102,10 @@ service = "router-ab-deriver-b-testnet"
 [[env.production-testnet.services]]
 binding = "SIGNING_WORKER"
 service = "router-ab-signing-worker-testnet"
+
+[[env.production-testnet.services]]
+binding = "TENANT_ROOT_CONTROL_PLANE"
+service = "router-ab-tenant-root-control-plane-testnet"
 
 [env.production-testnet.vars]
 ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING = "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET"

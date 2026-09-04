@@ -27,7 +27,6 @@ const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localh
 const consoleOrigin = 'http://localhost:4005';
 const consoleStaticUrl = `${consoleOrigin}/dashboard-static/`;
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
-const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost:4003';
 const siteViteUrl = 'http://127.0.0.1:4004';
@@ -134,6 +133,7 @@ async function main() {
   await waitForHttpOk(`${routerUrl}/readyz`, 'router readyz', 180_000);
   await waitForHttpOk(`${routerUrl}/console/readyz`, 'console readyz', 180_000);
   seedLocalConsole();
+  await createLocalTenantRoot();
 
   const site = startSite();
   await waitForHttpOk(siteViteUrl, 'site Vite', 120_000);
@@ -374,6 +374,37 @@ function seedLocalConsole() {
   }
 }
 
+async function createLocalTenantRoot() {
+  console.log('[intended-services] creating server-owned local tenant root');
+  const response = await requestJson(
+    new URL('/console/tenant-root/creation', routerUrl).href,
+    180_000,
+    {
+      ...localConsoleAuthHeaders(),
+      'content-type': 'application/json',
+    },
+    { operationId: 'intended-local-tenant-root-creation-v1' },
+  );
+  let result;
+  try {
+    result = JSON.parse(response.body);
+  } catch {
+    throw new Error(
+      `local tenant-root creation returned invalid JSON (HTTP ${response.statusCode})`,
+    );
+  }
+  if (
+    response.statusCode < 200 ||
+    response.statusCode >= 300 ||
+    result?.ok !== true ||
+    result?.status !== 'ACTIVE'
+  ) {
+    throw new Error(
+      `local tenant-root creation failed (HTTP ${response.statusCode}): ${response.body}`,
+    );
+  }
+}
+
 function siteEnv() {
   const runtime = requireD1LocalRuntimeConfig();
   return {
@@ -425,7 +456,7 @@ function routerEnv() {
     SEAMS_D1_LOCAL_SKIP_ENV_FILE: '1',
     SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'local-smoke-project',
-    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentKey,
+    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentId,
   };
 }
 
@@ -435,7 +466,7 @@ function prepareD1LocalWranglerRuntimeConfig() {
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
     localConsoleProjectId: 'local-smoke-project',
-    localConsoleEnvironmentId: projectEnvironmentKey,
+    localConsoleEnvironmentId: projectEnvironmentId,
   });
   d1LocalRuntimeConfig = runtime;
   localConsoleOrganizationId = runtime.localConsoleOrganizationId;
@@ -729,6 +760,30 @@ function requestText(urlValue, timeoutMs, headers = {}) {
     );
     req.once('timeout', handleTimeout(req));
     req.once('error', reject);
+  });
+}
+
+function requestJson(urlValue, timeoutMs, headers, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlValue);
+    const transport = url.protocol === 'https:' ? https : http;
+    const encodedBody = JSON.stringify(body);
+    const req = transport.request(
+      url,
+      {
+        timeout: timeoutMs,
+        rejectUnauthorized: false,
+        method: 'POST',
+        headers: {
+          ...headers,
+          'content-length': Buffer.byteLength(encodedBody),
+        },
+      },
+      handleTextResponse(resolve),
+    );
+    req.once('timeout', handleTimeout(req));
+    req.once('error', reject);
+    req.end(encodedBody);
   });
 }
 

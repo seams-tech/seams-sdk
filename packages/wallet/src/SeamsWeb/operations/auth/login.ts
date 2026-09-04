@@ -167,7 +167,11 @@ import {
 } from '@/core/indexedDB/linkedAuthoritySignerMaterial';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import type { ExactWalletSessionAuthorization } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import {
+  exactWalletSessionAuthorityIdentity,
+  type ExactWalletSessionAuthorization,
+  type ExactWalletSessionAuthorityIdentity,
+} from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import {
   isEcdsaCredentialFreeSessionActivationAuthorization,
   type EcdsaPreauthorizedSessionActivation,
@@ -4626,8 +4630,14 @@ type PreparedPasskeyExchangeEcdsaActivation = {
 type CompletedPasskeyExchangeEcdsaActivation = PreparedPasskeyExchangeEcdsaActivation & {
   readonly response: PasskeyWalletUnlockEcdsaSessionActivation;
   readonly sessionActivation: EcdsaPreauthorizedSessionActivation;
+  readonly authorizationIdentity: ExactWalletSessionAuthorityIdentity;
   readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+};
+
+type LoginPreauthorizedEcdsaActivation = {
+  readonly sessionActivation: EcdsaPreauthorizedSessionActivation;
+  readonly authorizationIdentity: ExactWalletSessionAuthorityIdentity;
 };
 
 function thresholdSessionIdFromPasskeyEcdsaActivation(
@@ -4636,6 +4646,18 @@ function thresholdSessionIdFromPasskeyEcdsaActivation(
   return isEcdsaCredentialFreeSessionActivationAuthorization(activation)
     ? activation.activation.session.threshold_session_id
     : activation.session.threshold_session_id;
+}
+
+function exactAuthorizationFromPasskeyEcdsaActivation(
+  activation: EcdsaPreauthorizedSessionActivation,
+): ExactWalletSessionAuthorization {
+  if (isEcdsaCredentialFreeSessionActivationAuthorization(activation)) {
+    return activation.authorization;
+  }
+  return {
+    record: activation.session.wallet_session,
+    operationCredential: activation.session.operation_credential,
+  };
 }
 
 function resolveUnlockEcdsaKeyFactsInventoryAuthority(args: {
@@ -4899,12 +4921,53 @@ function passkeyWalletUnlockInput(args: {
   };
 }
 
+type ValidatedPasskeyWalletSessionAuthority = {
+  readonly reference: WalletAuthAuthorityRef;
+  readonly identity: ExactWalletSessionAuthorityIdentity;
+};
+
+async function resolveActivePasskeyWalletSessionAuthority(args: {
+  readonly walletId: WalletId;
+  readonly authorization: ExactWalletSessionAuthorization;
+}): Promise<ValidatedPasskeyWalletSessionAuthority> {
+  const authMethod = await IndexedDBManager.getWalletAuthMethodV2(
+    args.authorization.record.authMethodId,
+  );
+  if (
+    !authMethod ||
+    authMethod.kind !== 'passkey' ||
+    authMethod.status !== 'active' ||
+    authMethod.walletId !== args.walletId ||
+    authMethod.walletAuthorityId !== args.authorization.record.authorityId
+  ) {
+    throw new Error('Passkey Wallet Session authorization changed auth-method identity');
+  }
+  const authority = await IndexedDBManager.getWalletAuthority(authMethod.walletAuthorityId);
+  if (
+    !authority ||
+    authority.state !== 'active' ||
+    authority.walletId !== args.walletId ||
+    authority.authorityId !== args.authorization.record.authorityId ||
+    authority.authorityDigestB64u !== args.authorization.record.authorityDigestB64u ||
+    authority.revocationEpoch !== args.authorization.record.authorityRevocationEpoch
+  ) {
+    throw new Error('Passkey Wallet Session authorization changed authority identity');
+  }
+  return {
+    reference: await walletAuthAuthorityRefForSelectedPasskeyMethod(authMethod),
+    identity: exactWalletSessionAuthorityIdentity({
+      authority,
+      walletAuthMethodId: authMethod.walletAuthMethodId,
+    }),
+  };
+}
+
 async function validatePasskeyWalletSessionAuthorization(args: {
   readonly walletIdentity: ResolvedLoginWalletIdentity;
   readonly rpId: string;
   readonly credential: WebAuthnAuthenticationCredential;
   readonly authorization: ExactWalletSessionAuthorization;
-}): Promise<WalletAuthAuthorityRef> {
+}): Promise<ValidatedPasskeyWalletSessionAuthority> {
   const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(args.credential);
   if (!credentialIdB64u) {
     throw new Error('Passkey Wallet Session adoption requires WebAuthn credential identity');
@@ -4914,25 +4977,15 @@ async function validatePasskeyWalletSessionAuthorization(args: {
     rpId: args.rpId,
     credentialIdB64u,
   });
-  const authority = await walletAuthAuthorityRef({
-    authority: {
-      walletId: authMethod.walletId,
-      factor: {
-        kind: 'passkey',
-        credentialIdB64u: authMethod.credentialIdB64u,
-      },
-      verifier: {
-        kind: 'webauthn',
-        rpId: authMethod.rpId,
-      },
-      bindingId: authMethod.walletAuthMethodId,
-    },
+  const authority = await resolveActivePasskeyWalletSessionAuthority({
+    walletId: args.walletIdentity.walletId,
+    authorization: args.authorization,
   });
   if (
     args.authorization.record.walletId !== args.walletIdentity.walletId ||
     args.authorization.record.authMethodId !== authMethod.walletAuthMethodId ||
     args.authorization.record.authorityId !== authMethod.walletAuthorityId ||
-    authority.walletId !== args.walletIdentity.walletId
+    authority.reference.walletId !== args.walletIdentity.walletId
   ) {
     throw new Error('Passkey Wallet Session authorization changed auth-method identity');
   }
@@ -5073,6 +5126,14 @@ async function completePasskeyWalletUnlock(
       sessionActivation = result.ecdsaSession;
     }
   }
+  const ecdsaSessionAuthority = sessionActivation
+    ? await validatePasskeyWalletSessionAuthorization({
+        walletIdentity: args.walletIdentity,
+        rpId: args.rpId,
+        credential,
+        authorization: exactAuthorizationFromPasskeyEcdsaActivation(sessionActivation),
+      })
+    : null;
   if (walletSessionAuthorizationToPersist) {
     await walletSessionAuthorizations.writeExactWithOperationCredential(
       walletSessionAuthorizationToPersist,
@@ -5088,7 +5149,8 @@ async function completePasskeyWalletUnlock(
     }
     const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
     const authority =
-      passkeySessionAuthority ??
+      ecdsaSessionAuthority?.reference ??
+      passkeySessionAuthority?.reference ??
       (await exactPasskeyWalletAuthAuthorityRefForCredential({
         walletId: args.walletIdentity.walletId,
         rpId: args.rpId,
@@ -5106,11 +5168,12 @@ async function completePasskeyWalletUnlock(
   return {
     credential,
     activation:
-      activation && result.ecdsaSession && sessionActivation
+      activation && result.ecdsaSession && sessionActivation && ecdsaSessionAuthority
         ? {
             ...activation,
             response: result.ecdsaSession,
             sessionActivation,
+            authorizationIdentity: ecdsaSessionAuthority.identity,
             activationReceipt: result.ecdsaActivationReceipt,
             continuity: result.ecdsaCustody,
           }
@@ -6215,10 +6278,7 @@ async function primeThresholdLoginWarmSigners(args: {
         await authorityDeferred?.promise;
         let bootstrapIdentity: ThresholdLoginWarmEcdsaBootstrapIdentity | null = null;
         let consumedPasskeyExchangeActivation = false;
-        const activationByMaterial = new Map<
-          string,
-          RouterAbEcdsaPostRegistrationSessionActivationResponseV1
-        >();
+        const activationByMaterial = new Map<string, LoginPreauthorizedEcdsaActivation>();
         const configuredEcdsaTargets = listConfiguredThresholdEcdsaPublicationTargets(
           args.context.configs.network.chains,
         );
@@ -6328,10 +6388,14 @@ async function primeThresholdLoginWarmSigners(args: {
             exchangeActivation.targetKey === thresholdEcdsaChainTargetKey(target.chainTarget)
               ? exchangeActivation
               : null;
-          const preauthorizedActivation =
-            matchingExchangeActivation?.sessionActivation || reusedMaterialActivation || null;
-          const thresholdSessionId = preauthorizedActivation
-            ? thresholdSessionIdFromPasskeyEcdsaActivation(preauthorizedActivation)
+          const preauthorized = matchingExchangeActivation
+            ? {
+                sessionActivation: matchingExchangeActivation.sessionActivation,
+                authorizationIdentity: matchingExchangeActivation.authorizationIdentity,
+              }
+            : (reusedMaterialActivation ?? null);
+          const thresholdSessionId = preauthorized
+            ? thresholdSessionIdFromPasskeyEcdsaActivation(preauthorized.sessionActivation)
             : resolveThresholdLoginWarmEcdsaThresholdSessionId({
                 sharedState: ecdsaThresholdSessionState,
               });
@@ -6356,7 +6420,7 @@ async function primeThresholdLoginWarmSigners(args: {
             throw new Error('[login] ECDSA role-local activation requires passkey identity');
           }
           const authorizationAuthority = existingRoleLocalMaterial.authority;
-          if (preauthorizedActivation) {
+          if (preauthorized) {
             if (matchingExchangeActivation) consumedPasskeyExchangeActivation = true;
             return await bootstrapLoginEcdsaSession({
               signingEngine: args.signingEngine,
@@ -6371,8 +6435,9 @@ async function primeThresholdLoginWarmSigners(args: {
                 publicCapability,
                 existingRoleLocalMaterial,
                 authorizationAuthority,
+                authorizationIdentity: preauthorized.authorizationIdentity,
                 passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
-                sessionActivation: preauthorizedActivation,
+                sessionActivation: preauthorized.sessionActivation,
               },
             });
           }
@@ -6435,7 +6500,17 @@ async function primeThresholdLoginWarmSigners(args: {
             const activation = preauthorizedEcdsaActivationFromBootstrap(bootstrap);
             const activationKey = sharedEcdsaActivationKey(activation.public_capability);
             if (!activationByMaterial.has(activationKey)) {
-              activationByMaterial.set(activationKey, activation);
+              const activationAuthority = await resolveActivePasskeyWalletSessionAuthority({
+                walletId: args.walletIdentity.walletId,
+                authorization: {
+                  record: bootstrap.session.walletSession,
+                  operationCredential: bootstrap.session.operationCredential,
+                },
+              });
+              activationByMaterial.set(activationKey, {
+                sessionActivation: activation,
+                authorizationIdentity: activationAuthority.identity,
+              });
             }
             const returnedKeyHandle = String(
               bootstrap.thresholdEcdsaKeyRef?.keyHandle || '',

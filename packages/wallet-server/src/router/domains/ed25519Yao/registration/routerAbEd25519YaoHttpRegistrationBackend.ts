@@ -18,6 +18,9 @@ import type {
   RouterAbEd25519YaoRegistrationBackendResult,
 } from './routerAbEd25519YaoRegistration';
 import type { RouterAbEd25519YaoExportBackend } from '../export/routerAbEd25519YaoExport';
+import type { RouterAbEd25519YaoRecoveryBackend } from '../recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoTenantRootResolverV1 } from '../routerAbEd25519YaoGatewayEnvelope';
+import type { TenantRootActiveLineageV1 } from '../../tenantRoot/tenantRootCustodyLineage';
 import {
   createRouterAbTraceContextV1,
   type RouterAbTraceContextV1,
@@ -50,6 +53,7 @@ export type RouterAbEd25519YaoHttpRegistrationBackendConfig = {
   deriverAInputPublicKey: readonly number[];
   deriverBInputPublicKey: readonly number[];
   signingWorkerRecipientPublicKey: readonly number[];
+  resolveTenantRoot: RouterAbEd25519YaoTenantRootResolverV1;
   fetch: typeof fetch;
   onSpan?: (span: RouterAbEd25519YaoGatewaySpanV1) => void;
 };
@@ -91,6 +95,7 @@ type ValidatedHttpBackendConfig = {
   deriverAInputPublicKey: readonly number[];
   deriverBInputPublicKey: readonly number[];
   signingWorkerRecipientPublicKey: readonly number[];
+  resolveTenantRoot: RouterAbEd25519YaoTenantRootResolverV1;
   fetch: typeof fetch;
   onSpan: ((span: RouterAbEd25519YaoGatewaySpanV1) => void) | undefined;
 };
@@ -242,6 +247,9 @@ function validateConfig(
     throw new Error('Ed25519 Yao recipient keys must be distinct');
   }
   if (typeof input.fetch !== 'function') throw new Error('fetch is required');
+  if (typeof input.resolveTenantRoot !== 'function') {
+    throw new Error('resolveTenantRoot is required');
+  }
   return {
     routerUrl: requireHttpOrigin(input.routerUrl, 'routerUrl'),
     signingWorkerId: requireNonEmpty(input.signingWorkerId, 'signingWorkerId'),
@@ -249,6 +257,7 @@ function validateConfig(
     deriverAInputPublicKey,
     deriverBInputPublicKey,
     signingWorkerRecipientPublicKey,
+    resolveTenantRoot: input.resolveTenantRoot,
     fetch: input.fetch,
     onSpan: input.onSpan,
   };
@@ -383,7 +392,7 @@ function activeReceiptMatchesRecoveryActivation(
   );
 }
 
-type RouterExecuteBoundary =
+type RouterExecuteTargetBoundary =
   | {
       operation: 'registration';
       binding: RouterAbEd25519YaoRegistrationExecuteRequestV1['binding'];
@@ -403,66 +412,115 @@ type RouterExecuteBoundary =
       deriver_b_input: RouterAbEd25519YaoExportExecuteRequestV1['deriver_b_input'];
     };
 
+type RouterExecuteBoundary = {
+  tenant_root: TenantRootBoundary;
+  application: RouterAbEd25519YaoRegistrationAdmissionRequestV1['application_binding'];
+  participant_ids: RouterAbEd25519YaoRegistrationAdmissionRequestV1['participant_ids'];
+  target: RouterExecuteTargetBoundary;
+};
+
+type TenantRootBoundary = {
+  identity_digest_b64u: TenantRootActiveLineageV1['identityDigestB64u'];
+  custody_lineage_b64u: TenantRootActiveLineageV1['custodyLineageB64u'];
+};
+
 type RouterExecuteInput =
-  | RouterAbEd25519YaoRegistrationExecuteRequestV1
-  | RouterAbEd25519YaoRecoveryExecuteRequestV1
-  | RouterAbEd25519YaoExportExecuteRequestV1;
+  | {
+      readonly operation: 'registration';
+      readonly request: RouterAbEd25519YaoRegistrationExecuteRequestV1;
+      readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    }
+  | {
+      readonly operation: 'recovery';
+      readonly request: RouterAbEd25519YaoRecoveryExecuteRequestV1;
+      readonly admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+    }
+  | {
+      readonly operation: 'export';
+      readonly request: RouterAbEd25519YaoExportExecuteRequestV1;
+      readonly admissionRequest: RouterAbEd25519YaoExportAdmissionRequestV1;
+    };
 
-function isExportExecuteRequest(
-  request: RouterExecuteInput,
-): request is RouterAbEd25519YaoExportExecuteRequestV1 {
-  return 'ceremony' in request.binding;
+function tenantRootBoundary(root: TenantRootActiveLineageV1): TenantRootBoundary {
+  return {
+    identity_digest_b64u: root.identityDigestB64u,
+    custody_lineage_b64u: root.custodyLineageB64u,
+  };
 }
 
-function isRegistrationExecuteRequest(
-  request: RouterExecuteInput,
-): request is RouterAbEd25519YaoRegistrationExecuteRequestV1 {
-  return !isExportExecuteRequest(request) && request.binding.operation === 'registration';
+async function routerExecuteRequest(
+  input: RouterExecuteInput,
+  resolveTenantRoot: RouterAbEd25519YaoTenantRootResolverV1,
+): Promise<RouterExecuteBoundary> {
+  switch (input.operation) {
+    case 'registration': {
+      const tenantRoot = tenantRootBoundary(
+        await resolveTenantRoot({
+          operation: 'registration',
+          admissionRequest: input.admissionRequest,
+        }),
+      );
+      return {
+        tenant_root: tenantRoot,
+        application: input.admissionRequest.application_binding,
+        participant_ids: input.admissionRequest.participant_ids,
+        target: {
+          operation: 'registration',
+          binding: input.request.binding,
+          deriver_a_input: input.request.deriver_a_input,
+          deriver_b_input: input.request.deriver_b_input,
+        },
+      };
+    }
+    case 'recovery': {
+      const tenantRoot = tenantRootBoundary(
+        await resolveTenantRoot({
+          operation: 'recovery',
+          admissionRequest: input.admissionRequest,
+        }),
+      );
+      return {
+        tenant_root: tenantRoot,
+        application: input.admissionRequest.application_binding,
+        participant_ids: input.admissionRequest.participant_ids,
+        target: {
+          operation: 'recovery',
+          binding: input.request.binding,
+          deriver_a_input: input.request.deriver_a_input,
+          deriver_b_input: input.request.deriver_b_input,
+        },
+      };
+    }
+    case 'export': {
+      const tenantRoot = tenantRootBoundary(
+        await resolveTenantRoot({ operation: 'export', admissionRequest: input.admissionRequest }),
+      );
+      return {
+        tenant_root: tenantRoot,
+        application: input.admissionRequest.application_binding,
+        participant_ids: input.admissionRequest.participant_ids,
+        target: {
+          operation: 'export',
+          binding: input.request.binding,
+          deriver_a_input: input.request.deriver_a_input,
+          deriver_b_input: input.request.deriver_b_input,
+        },
+      };
+    }
+  }
 }
 
-function isRecoveryExecuteRequest(
-  request: RouterExecuteInput,
-): request is RouterAbEd25519YaoRecoveryExecuteRequestV1 {
-  return !isExportExecuteRequest(request) && request.binding.operation === 'recovery';
-}
-
-function executeOperation(request: RouterExecuteInput): 'registration' | 'recovery' | 'export' {
-  return isExportExecuteRequest(request)
+function executeOperation(
+  request: RouterExecuteInput['request'],
+): RouterAbEd25519YaoGatewaySpanV1['operation'] {
+  return 'ceremony' in request.binding
     ? request.binding.ceremony.operation
     : request.binding.operation;
 }
 
-async function routerExecuteRequest(request: RouterExecuteInput): Promise<RouterExecuteBoundary> {
-  if (isExportExecuteRequest(request)) {
-    return {
-      operation: 'export',
-      binding: request.binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
-  if (isRegistrationExecuteRequest(request)) {
-    return {
-      operation: 'registration',
-      binding: request.binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
-  if (isRecoveryExecuteRequest(request)) {
-    return {
-      operation: 'recovery',
-      binding: request.binding,
-      deriver_a_input: request.deriver_a_input,
-      deriver_b_input: request.deriver_b_input,
-    };
-  }
-  throw new Error('Unsupported Router Yao execute operation');
-}
-
 function parseRouterExecuteResult(
   value: unknown,
-  request: RouterExecuteInput,
+  request: RouterExecuteInput['request'],
 ): RouterAbEd25519YaoRegistrationBackendResult {
   try {
     const envelope = requireRecord(value, 'Router Yao execute result');
@@ -568,7 +626,10 @@ function requestInitWithReplayHeader(init: RequestInit): RequestInit {
 }
 
 export class RouterAbEd25519YaoHttpRegistrationBackend
-  implements RouterAbEd25519YaoRegistrationBackend, RouterAbEd25519YaoExportBackend
+  implements
+    RouterAbEd25519YaoRegistrationBackend,
+    RouterAbEd25519YaoRecoveryBackend,
+    RouterAbEd25519YaoExportBackend
 {
   private readonly config: ValidatedHttpBackendConfig;
   private lastRouterServerTiming: string | null = null;
@@ -649,9 +710,13 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    admissionRequest: RouterAbEd25519YaoExportAdmissionRequestV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'export', traceContext);
+    return await this.executeRouterRequest(
+      { operation: 'export', request, admissionRequest },
+      traceContext,
+    );
   }
 
   private keyset() {
@@ -734,28 +799,36 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
 
   async execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'registration', traceContext);
+    return await this.executeRouterRequest(
+      { operation: 'registration', request, admissionRequest },
+      traceContext,
+    );
   }
 
   async executeRecovery(
     request: RouterAbEd25519YaoRecoveryExecuteRequestV1,
+    admissionRequest: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
-    return await this.executeRouterRequest(request, 'recovery', traceContext);
+    return await this.executeRouterRequest(
+      { operation: 'recovery', request, admissionRequest },
+      traceContext,
+    );
   }
 
   private async executeRouterRequest(
     request: RouterExecuteInput,
-    operation: RouterAbEd25519YaoGatewaySpanV1['operation'],
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationBackendResult> {
     const traceId = (traceContext ?? createRouterAbTraceContextV1()).value;
+    const operation = request.operation;
     const preYaoStartedAt = performance.now();
     let routerRequest: RouterExecuteBoundary;
     try {
-      routerRequest = await routerExecuteRequest(request);
+      routerRequest = await routerExecuteRequest(request, this.config.resolveTenantRoot);
     } catch (error: unknown) {
       emitGatewaySpan(
         this.config.onSpan,
@@ -780,7 +853,9 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
     try {
       const response = await this.post(ROUTER_EXECUTE_PATH, routerRequest, traceId, true);
       this.lastRouterServerTiming = response.ok ? response.serverTiming : null;
-      const result = response.ok ? parseRouterExecuteResult(response.body, request) : response;
+      const result = response.ok
+        ? parseRouterExecuteResult(response.body, request.request)
+        : response;
       emitGatewaySpan(
         this.config.onSpan,
         'gateway.yao_execute',
@@ -909,9 +984,12 @@ function parseRouterServerTiming(value: string | null): string | null {
 
 export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
   env: RouterAbEd25519YaoHttpRegistrationBackendRawEnv;
+  resolveTenantRoot: RouterAbEd25519YaoTenantRootResolverV1;
   onSpan?: (span: RouterAbEd25519YaoGatewaySpanV1) => void;
   fetch: typeof fetch;
-}): RouterAbEd25519YaoHttpRegistrationBackend {
+}): RouterAbEd25519YaoRegistrationBackend &
+  RouterAbEd25519YaoRecoveryBackend &
+  RouterAbEd25519YaoExportBackend {
   const env = input.env;
   return new RouterAbEd25519YaoHttpRegistrationBackend({
     routerUrl: requireNonEmpty(
@@ -938,6 +1016,7 @@ export function createRouterAbEd25519YaoHttpRegistrationBackendFromEnv(input: {
       envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey),
       ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey,
     ),
+    resolveTenantRoot: input.resolveTenantRoot,
     onSpan: input.onSpan,
     fetch: input.fetch,
   });

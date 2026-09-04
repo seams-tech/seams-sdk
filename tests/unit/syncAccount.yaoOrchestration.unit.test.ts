@@ -18,6 +18,7 @@ import {
   parseEcdsaRoleLocalDurableMaterialRef,
 } from '../../packages/wallet/src/core/signingEngine/session/keyMaterialBrands';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/wallet/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { configurePasskeyCustodySessionCachePersistence } from '../../packages/wallet/src/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
   RouterAbEd25519YaoClientV1,
@@ -40,14 +41,20 @@ import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
-import { mpcMaterialActivationRefsEqual } from '../../packages/shared-ts/src/utils/domainIds';
+import {
+  mpcMaterialActivationRefsEqual,
+  type MpcMaterialActivationRef,
+} from '../../packages/shared-ts/src/utils/domainIds';
 import {
   routerAbMpcMaterialActivationRefFromWire,
   routerAbMpcMaterialActivationRefToWire,
 } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseWalletSessionAuthorizationId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
@@ -74,7 +81,7 @@ const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
 const SIGNER_SLOT = 3;
 const THRESHOLD_SESSION_ID = 'threshold-session-sync-1';
 const WALLET_SESSION_ID = 'wallet-session-sync-1';
-const WALLET_SESSION_QUOTA_ID = 'wallet-session-quota-sync-1';
+const WALLET_SESSION_QUOTA_ID = mpcWalletSigningQuotaId('wallet-session-quota-sync-1');
 const OPERATION_CREDENTIAL_TOKEN = `wst_${base64UrlEncode(new Uint8Array(32).fill(88))}`;
 const SIGNING_WORKER_ID = 'signing-worker-sync-1';
 const ROOT_SHARE_EPOCH = 'root-share-epoch-sync-1';
@@ -88,6 +95,12 @@ const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   SIGNING_WORKER_ID,
   NEAR_SIGNING_KEY_ID,
 );
+
+function mpcWalletSigningQuotaId(value: string) {
+  const parsed = parseMpcWalletSigningQuotaId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
 
 type MockActiveClient = RouterAbEd25519YaoSealableActiveClientV1;
 
@@ -109,7 +122,7 @@ type FetchScenario = {
   readonly verifiedWalletId: string;
   readonly ecdsaSigners: readonly Record<string, unknown>[];
   readonly ecdsaSessionAuthorizationId?: string;
-  readonly ecdsaSessionMaterialActivation?: Record<string, unknown>;
+  readonly ecdsaSessionMaterialActivation?: MpcMaterialActivationRef;
   readonly alreadyCommittedWalletId?: string;
   readonly alreadyCommittedWalletAuthMethodId?: string;
   readonly replacementCredentialIds?: readonly string[];
@@ -198,6 +211,14 @@ class SyncAccountPersistenceFixture {
 
   async getAppState<T = unknown>(key: string): Promise<T | undefined> {
     return this.appState.get(key) as T | undefined;
+  }
+
+  async readCacheEntry(key: string): Promise<unknown | undefined> {
+    return this.appState.get(key);
+  }
+
+  async writeCacheEntry(key: string, value: unknown): Promise<void> {
+    this.appState.set(key, value);
   }
 
   async compareAndSwapAppState(input: {
@@ -564,7 +585,7 @@ async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<strin
     issuedAtMs: Date.now() - 1_000,
     expiresAtMs,
   });
-  const response = {
+  const response: Record<string, unknown> = {
     ok: true,
     verified: true,
     walletId,
@@ -682,7 +703,7 @@ async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<strin
 
 function ecdsaSessionMaterialActivationForSync(
   ecdsaSigners: readonly Record<string, unknown>[],
-): Record<string, unknown> | null {
+): MpcMaterialActivationRef | null {
   const firstSigner = ecdsaSigners[0];
   if (!firstSigner || !isPlainObject(firstSigner.walletKey)) return null;
   if (!isPlainObject(firstSigner.walletKey.publicCapability)) return null;
@@ -871,6 +892,14 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     throw new Error('wallet custody ceremony is outside the syncAccount fixture');
   }
 
+  async activateEmailOtpEd25519RegistrationMaterialInternal(
+    _args: Parameters<
+      AccountSyncSigningSurface['activateEmailOtpEd25519RegistrationMaterialInternal']
+    >[0],
+  ): Promise<never> {
+    throw new Error('Email OTP registration is outside the syncAccount fixture');
+  }
+
   async establishWalletCustodyEvmFamilyKeySet(
     _args: Parameters<AccountSyncSigningSurface['establishWalletCustodyEvmFamilyKeySet']>[0],
   ): Promise<never> {
@@ -891,17 +920,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
     return this.walletAuthenticationState;
   }
 
-  async restoreWalletAuthenticationState(
-    walletId: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[0],
-    _auth: Parameters<AccountSyncSigningSurface['restoreWalletAuthenticationState']>[1],
-  ): Promise<WalletAuthenticationState> {
-    const resolvedWalletId = toWalletId(String(walletId || DISCOVERED_WALLET_ID));
-    this.walletAuthenticationState = {
-      kind: 'authenticated',
-      walletId: resolvedWalletId,
-      authMethod: 'passkey',
-    };
-    return this.walletAuthenticationState;
+  setWalletAuthenticated(
+    state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
+  ): void {
+    this.walletAuthenticationState = state;
   }
 
   async assertSealedRefreshStartupParity(): Promise<void> {}
@@ -940,6 +962,10 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
 
   async readPersistedAvailableSigningLanes(): Promise<never> {
     throw new Error('persisted lane snapshot is outside the syncAccount fixture');
+  }
+
+  async readOwnerScopedSigningLanes(): Promise<never> {
+    throw new Error('owner-scoped lane snapshot is outside the syncAccount fixture');
   }
 
   async setLastUser(
@@ -1043,6 +1069,7 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
       loginDisplayName: input.loginDisplayName || input.walletId,
       signerSlot: input.signerSlot,
       operationalPublicKey: input.operationalPublicKey,
+      nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
       passkeyCredential: input.passkeyCredential,
       version: input.version,
       lastUpdated: input.lastUpdated,
@@ -1076,7 +1103,7 @@ class SyncAccountSigningSurfaceFixture implements AccountSyncSigningSurface {
         },
         activationReference: {
           kind: 'router_ab_ed25519_yao_activation_reference_v1',
-          lifecycle_id: args.registrationCeremonyId,
+          lifecycle_id: args.recoveryBasis.lifecycle.lifecycleId,
           session_id: metadata.activeCapabilityBinding,
         },
         localMaterial: {
@@ -1200,7 +1227,7 @@ function configureTestScenario(input: {
   readonly failRecovery?: boolean;
   readonly ecdsaSigners?: readonly Record<string, unknown>[];
   readonly ecdsaSessionAuthorizationId?: string;
-  readonly ecdsaSessionMaterialActivation?: Record<string, unknown>;
+  readonly ecdsaSessionMaterialActivation?: MpcMaterialActivationRef;
   readonly alreadyCommittedWalletId?: string;
   readonly alreadyCommittedWalletAuthMethodId?: string;
   readonly replacementCredentialIds?: readonly string[];
@@ -1231,8 +1258,10 @@ function setupSyncAccountTest(): void {
   activeYaoScenario = null;
   activeFetchScenario = null;
   activePersistenceFixture = new SyncAccountPersistenceFixture();
+  configurePasskeyCustodySessionCachePersistence(activePersistenceFixture);
   walletSessionAuthorizations.writeExactWithOperationCredential = async (input) => {
     activePersistenceFixture?.exactWalletSessionWrites.push(input);
+    return input.record;
   };
   globalThis.fetch = syncAccountFetch;
   installPersistenceFixture(activePersistenceFixture);
@@ -1308,7 +1337,7 @@ test.describe('public syncAccount Yao orchestration', () => {
     expect(surface.lastUserWalletIds).toEqual([]);
     expect(surface.clearWalletIds).toEqual([]);
     const persistence = requireActivePersistenceFixture();
-    expect(persistence.appState.size).toBe(0);
+    expect([...persistence.appState.keys()]).toEqual(['passkeyCustodyEnvelopeCacheV1']);
     expect([...persistence.keyMaterial.values()].map((record) => record.keyKind)).toEqual([
       'router_ab_ed25519_yao_active_client_v1',
     ]);

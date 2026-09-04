@@ -66,16 +66,19 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
             local_recipient_set_digest_v1(config)?,
             now_ms,
             now_ms.saturating_add(ROUTER_AUTHORITY_TTL_MS),
+            &config.tenant_root_resolver,
         )?;
         request.authority.validate_at(now_ms)?;
         let pair = request.pair_binding.clone();
         let prepare_a = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            tenant_root: request.tenant_root.clone(),
             work: request.work.clone(),
             input: request.deriver_a_input.clone(),
         };
         let prepare_b = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            tenant_root: request.tenant_root.clone(),
             work: request.work.clone(),
             input: request.deriver_b_input.clone(),
         };
@@ -116,6 +119,7 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 &config.internal_service_auth,
                 &CloudflareEd25519YaoPairExecuteRequestV1 {
                     pair_binding: pair.clone(),
+                    tenant_root: request.tenant_root.clone(),
                     work: request.work.clone(),
                     input: request.deriver_a_input.clone(),
                     local_receipt: receipt_a,
@@ -632,6 +636,8 @@ fn coordinator_error(message: &'static str) -> RouterAbProtocolError {
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalTenantRootResolverConfigV1;
+
     use super::*;
     use crate::LocalEd25519YaoSigningWorkerRecoveryPromotionRequestV1;
     use router_ab_core::{
@@ -711,6 +717,7 @@ mod tests {
             router_ab_core::PublicDigest32::new([0xa1; 32]),
             1,
             100,
+            &LocalTenantRootResolverConfigV1::default(),
         )
         .expect_err("malformed request must not reach a role");
         assert_eq!(
@@ -822,6 +829,7 @@ mod tests {
             signing_worker_ed25519_yao_recipient_public_key: "x25519:c".to_owned(),
             signing_worker_id: "local-signing-worker".to_owned(),
             internal_service_auth: "local-test-auth".to_owned(),
+            tenant_root_resolver: LocalTenantRootResolverConfigV1::default(),
         };
         let body = serde_json::to_vec(&request).expect("promotion JSON");
         let promoted = LocalRouterEd25519YaoCoordinatorV1::default()

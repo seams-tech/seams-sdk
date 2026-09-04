@@ -285,6 +285,7 @@ dependencies = [
 name = "threshold-prf-verus"
 version = "0.1.0"
 dependencies = [
+ "curve25519-dalek",
  "rand_chacha",
  "rand_core",
  "serde",

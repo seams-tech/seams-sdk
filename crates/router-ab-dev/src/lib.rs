@@ -7,31 +7,34 @@
 use base64::Engine;
 use rand_core::OsRng;
 use router_ab_cloudflare::{
+    cloudflare_ed25519_yao_tenant_root_context_v2, CloudflareEd25519YaoTenantRootContextV2,
     CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1, CloudflareSigningWorkerEcdsaPoolCommandV1,
     CloudflareSigningWorkerEcdsaPoolMutationOutcomeV1,
     CloudflareSigningWorkerEcdsaPresignaturePoolRecordV1,
-    CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    CloudflareSigningWorkerEcdsaPresignatureRecordV1, CloudflareTenantRootCoordinatesV1,
 };
 use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    router_transcript_digest_v1,
-    ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1, EncryptedPayloadV1,
-    ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1, LocalDeriverBEndpointV1,
-    LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1, LocalHttpPathV1,
-    LocalHttpRequestV1, LocalPersistenceSeedV1, LocalPersistenceSqlExecutionReceiptV1,
-    LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
-    LocalRouterEndpointV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1,
-    LocalServiceStartupV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
-    LocalTransportEnvelopeV1, LocalTransportRouteV1, MpcMaterialActivationRefV1,
-    RoleEncryptedEnvelopeV1, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+    router_transcript_digest_v1, ActiveSigningWorkerStateV1, EcdsaThresholdPrfRequestV1,
+    EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1,
+    LocalDeriverBEndpointV1, LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1,
+    LocalHttpPathV1, LocalHttpRequestV1, LocalPersistenceSeedV1,
+    LocalPersistenceSqlExecutionReceiptV1, LocalPersistenceSqlSeedExecutorV1,
+    LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalRouterEndpointV1,
+    LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1,
+    LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1, LocalTransportEnvelopeV1,
+    LocalTransportRouteV1, MpcMaterialActivationRefV1, RoleEncryptedEnvelopeV1,
+    RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
     RouterAbEcdsaDerivationSignatureSchemeV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
-    SignerSetV1, SigningRootShareStore, WireMessageKindV1, WireMessageV1,
+    SignerSetV1, SigningRootShareStore, TenantRootLifecycleReceiptDigestV1,
+    TenantRootOnlineRoleShareBindingV1, TenantRootShareEpoch, TenantRootSignedActivationReceiptV1,
+    TwoPartyDeriverRole, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{PublicDigest32, Role, RootShareEpoch};
 use router_ab_ecdsa_online::{
@@ -39,21 +42,18 @@ use router_ab_ecdsa_online::{
     SigningWorkerOnlineInput, SigningWorkerPresignMaterial,
 };
 use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, ser::SerializeStruct, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+use threshold_prf::{SigningRootShareCommitment, SigningRootShareWire};
 
 mod local_dev_http;
-mod local_ecdsa_root_shares;
 mod local_ed25519_yao_api;
 mod local_ed25519_yao_delivery;
 
-pub use local_ecdsa_root_shares::{
-    local_ecdsa_root_share_package_v1, LocalEcdsaRootSharePackageV1,
-};
 mod local_ed25519_yao_input;
 mod local_ed25519_yao_pair;
 mod local_ed25519_yao_profiles;
@@ -72,23 +72,23 @@ pub use local_dev_http::{
     local_dev_http_error_body_v1, local_dev_http_handle_request_v1,
     local_dev_http_handle_request_with_dispatcher_v1, local_dev_http_route_error_v1,
     local_dev_router_request_with_dispatcher_v1, read_local_dev_http_request_v1,
-    require_local_dev_internal_service_auth_v1,
-    write_local_dev_http_response_v1, LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1,
-    LocalDevHttpTopologyV1, LocalRouterRequestDispatcherV1,
+    require_local_dev_internal_service_auth_v1, write_local_dev_http_response_v1,
+    LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1, LocalDevHttpTopologyV1,
+    LocalRouterRequestDispatcherV1,
 };
 pub use local_ed25519_yao_api::{
-    build_local_activation_deriver_a_v1, build_local_activation_deriver_a_with_server_v1,
-    build_local_activation_deriver_b_v1, build_local_activation_deriver_b_with_server_v1,
-    build_local_export_deriver_a_v1, build_local_export_deriver_a_with_server_v1,
-    build_local_export_deriver_b_v1, build_local_export_deriver_b_with_server_v1,
-    build_local_refresh_deriver_a_v1, build_local_refresh_deriver_b_v1,
-    derive_local_ed25519_yao_deriver_a_initial_contribution_v1,
-    derive_local_ed25519_yao_deriver_b_initial_contribution_v1,
-    LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
-    LocalEd25519YaoActivationRecipientsV1, LocalEd25519YaoClientContributionV1,
-    LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
-    LocalEd25519YaoExportRecipientV1, LocalEd25519YaoRefreshDeriverARequestV1,
-    LocalEd25519YaoRefreshDeriverBRequestV1,
+    build_local_activation_deriver_a_with_server_v1,
+    build_local_activation_deriver_b_with_server_v1, build_local_export_deriver_a_with_server_v1,
+    build_local_export_deriver_b_with_server_v1, build_local_refresh_deriver_a_v1,
+    build_local_refresh_deriver_b_v1, LocalEd25519YaoActivationDeriverARequestV1,
+    LocalEd25519YaoActivationDeriverBRequestV1, LocalEd25519YaoActivationRecipientsV1,
+    LocalEd25519YaoClientContributionV1, LocalEd25519YaoExportDeriverARequestV1,
+    LocalEd25519YaoExportDeriverBRequestV1, LocalEd25519YaoExportRecipientV1,
+    LocalEd25519YaoRefreshDeriverARequestV1, LocalEd25519YaoRefreshDeriverBRequestV1,
+};
+pub(crate) use local_ed25519_yao_api::{
+    complete_local_deriver_a_target_v2, complete_local_deriver_b_target_v2,
+    prepare_local_deriver_a_target_v2, prepare_local_deriver_b_target_v2,
 };
 pub use local_ed25519_yao_delivery::{
     derive_local_ed25519_yao_recipient_key_pair_v1,
@@ -151,11 +151,10 @@ pub use local_ed25519_yao_signing_worker::{
 };
 pub use local_ed25519_yao_stream::{
     authenticate_local_ed25519_yao_deriver_b_peer_http_v1, run_local_activation_deriver_a_http_v1,
-    run_local_activation_deriver_a_pair_http_v1,
     run_local_activation_deriver_b_authenticated_http_v1, run_local_activation_deriver_b_http_v1,
-    run_local_export_deriver_a_http_v1, run_local_export_deriver_a_pair_http_v1,
-    run_local_export_deriver_b_authenticated_http_v1, run_local_export_deriver_b_http_v1,
-    LocalEd25519YaoAuthenticatedDeriverBPeerV1, LocalEd25519YaoStreamErrorV1,
+    run_local_export_deriver_a_http_v1, run_local_export_deriver_b_authenticated_http_v1,
+    run_local_export_deriver_b_http_v1, LocalEd25519YaoAuthenticatedDeriverBPeerV1,
+    LocalEd25519YaoStreamErrorV1,
 };
 pub use local_ed25519_yao_worker::{
     dispatch_local_ed25519_yao_connection_v1,
@@ -192,7 +191,8 @@ pub use router_ab_core::{
 
 const LOCAL_NORMAL_SIGNING_ACTIVATION_MS_V1: u64 = 1_700_000_000_000;
 const LOCAL_DEV_ACCOUNT_ID_V1: &str = "alice.testnet";
-const LOCAL_DEV_ACCOUNT_PUBLIC_KEY_V1: &str = "ed25519:11111111111111111111111111111111";
+const LOCAL_DEV_APPLICATION_BINDING_DIGEST_B64U_V1: &str =
+    "ERERERERERERERERERERERERERERERERERERERERERE";
 
 /// Local worker role env key used by the private-worker development harness.
 pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
@@ -210,22 +210,22 @@ pub const LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
 /// Deriver B envelope HPKE private-key env key.
 pub const LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY";
-/// Deriver A root-share wire secret env key.
-pub const LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_A_ROOT_SHARE_WIRE_SECRET";
-/// Deriver B root-share wire secret env key.
-pub const LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_B_ROOT_SHARE_WIRE_SECRET";
-/// Deriver A Ed25519 Yao server-contribution root env key.
-pub const LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1: &str =
-    "DERIVER_A_ED25519_YAO_DERIVATION_ROOT";
-/// Deriver B Ed25519 Yao server-contribution root env key.
-pub const LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1: &str =
-    "DERIVER_B_ED25519_YAO_DERIVATION_ROOT";
+/// Required Router map of authenticated tenant-root coordinates and active receipts.
+pub const LOCAL_TENANT_ROOT_BINDINGS_JSON_ENV_V1: &str = "LOCAL_TENANT_ROOT_BINDINGS_JSON";
+/// Required Deriver-local map of authenticated role shares by tenant-root epoch.
+pub const LOCAL_TENANT_ROOT_ROLE_SHARES_JSON_ENV_V1: &str = "LOCAL_TENANT_ROOT_ROLE_SHARES_JSON";
 /// Deriver A Ed25519 Yao Client-input HPKE public-key env key.
 pub const LOCAL_DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY_ENV_V1: &str =
     "DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY";
 /// Deriver B Ed25519 Yao Client-input HPKE public-key env key.
 pub const LOCAL_DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY_ENV_V1: &str =
     "DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY";
+/// Deriver A's peer HPKE public key for the V2 target-proof preface.
+pub const LOCAL_DERIVER_A_TARGET_PROOF_PEER_PUBLIC_KEY_ENV_V1: &str =
+    "DERIVER_A_TARGET_PROOF_PEER_PUBLIC_KEY";
+/// Deriver B's peer HPKE public key for the V2 target-proof preface.
+pub const LOCAL_DERIVER_B_TARGET_PROOF_PEER_PUBLIC_KEY_ENV_V1: &str =
+    "DERIVER_B_TARGET_PROOF_PEER_PUBLIC_KEY";
 /// Deriver A peer signing key env key.
 pub const LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1: &str = "DERIVER_A_PEER_SIGNING_KEY";
 /// Deriver B peer signing key env key.
@@ -240,12 +240,6 @@ pub const LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
 /// Deriver B role-private SQLite path env key.
 pub const LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1: &str =
     "DERIVER_B_ROLE_PRIVATE_STORAGE_PATH";
-/// Deriver A sealed root-share storage path env key.
-pub const LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
-    "DERIVER_A_SEALED_ROOT_SHARES_PATH";
-/// Deriver B sealed root-share storage path env key.
-pub const LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
-    "DERIVER_B_SEALED_ROOT_SHARES_PATH";
 /// SigningWorker server-output HPKE private-key env key.
 pub const LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1: &str =
     "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY";
@@ -417,38 +411,26 @@ pub(crate) fn local_router_ab_internal_service_auth_matches_v1(
 const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
-    LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
 
 const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
     LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_SIGNING_WORKER_PRIVATE_STORAGE_PATH_ENV_V1,
 ];
@@ -456,17 +438,724 @@ const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
 const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
     LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
     LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
-    LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
-    LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
     LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
     LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
 ];
+
+/// One Router-owned authenticated tenant-root record parsed from the local map.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalTenantRootBindingV1 {
+    pub(crate) activation_receipt_bytes: Vec<u8>,
+    pub(crate) issuer_verifying_key: [u8; 32],
+    pub(crate) application: RouterAbEd25519YaoApplicationBindingFactsV1,
+    pub(crate) participant_ids: [u16; 2],
+    pub(crate) deriver_a_identity: String,
+    pub(crate) deriver_b_identity: String,
+}
+
+impl Serialize for LocalTenantRootBindingV1 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("LocalTenantRootBindingV1", 6)?;
+        state.serialize_field(
+            "activation_receipt_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(&self.activation_receipt_bytes),
+        )?;
+        state.serialize_field(
+            "issuer_verifying_key_hex",
+            &hex::encode(self.issuer_verifying_key),
+        )?;
+        state.serialize_field("application", &self.application)?;
+        state.serialize_field("participant_ids", &self.participant_ids)?;
+        state.serialize_field("deriver_a_identity", &self.deriver_a_identity)?;
+        state.serialize_field("deriver_b_identity", &self.deriver_b_identity)?;
+        state.end()
+    }
+}
+
+/// Router-owned map of authenticated tenant-root coordinates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalTenantRootResolverConfigV1 {
+    pub(crate) bindings: BTreeMap<String, LocalTenantRootBindingV1>,
+}
+
+impl Default for LocalTenantRootResolverConfigV1 {
+    fn default() -> Self {
+        Self {
+            bindings: BTreeMap::new(),
+        }
+    }
+}
+
+/// One Deriver-owned authenticated role share parsed from the local map.
+#[derive(Debug, Clone)]
+pub struct LocalTenantRootRoleShareV1 {
+    pub(crate) binding: TenantRootOnlineRoleShareBindingV1,
+    pub(crate) share_wire: SigningRootShareWire,
+    pub(crate) activation_receipt_digest: [u8; 32],
+}
+
+impl PartialEq for LocalTenantRootRoleShareV1 {
+    fn eq(&self, other: &Self) -> bool {
+        self.binding == other.binding
+            && self.share_wire.to_bytes() == other.share_wire.to_bytes()
+            && self.activation_receipt_digest == other.activation_receipt_digest
+    }
+}
+
+impl Eq for LocalTenantRootRoleShareV1 {}
+
+impl Serialize for LocalTenantRootRoleShareV1 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("LocalTenantRootRoleShareV1", 9)?;
+        state.serialize_field(
+            "identity_digest_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(self.binding.identity_digest().as_bytes()),
+        )?;
+        state.serialize_field(
+            "custody_lineage_b64u",
+            &self.binding.custody_lineage().to_base64url(),
+        )?;
+        state.serialize_field("role", self.binding.role().as_str())?;
+        state.serialize_field("epoch", &self.binding.epoch().get().get())?;
+        state.serialize_field(
+            "share_commitment_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(self.binding.share_commitment().as_bytes()),
+        )?;
+        state.serialize_field(
+            "epoch_wrapping_key_ref",
+            self.binding.epoch_wrapping_key_ref(),
+        )?;
+        state.serialize_field(
+            "installation_evidence_digest_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(self.binding.installation_evidence_digest().as_bytes()),
+        )?;
+        state.serialize_field(
+            "share_wire_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(self.share_wire.to_bytes()),
+        )?;
+        state.serialize_field(
+            "activation_receipt_digest_b64u",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .encode(self.activation_receipt_digest),
+        )?;
+        state.end()
+    }
+}
+
+/// Deriver-local map of authenticated role shares keyed by tenant coordinates and epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalTenantRootRoleSharesConfigV1 {
+    pub(crate) shares: BTreeMap<String, LocalTenantRootRoleShareV1>,
+}
+
+impl Default for LocalTenantRootRoleSharesConfigV1 {
+    fn default() -> Self {
+        Self {
+            shares: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocalTenantRootBindingV1 {
+    activation_receipt_b64u: String,
+    issuer_verifying_key_hex: String,
+    application: RouterAbEd25519YaoApplicationBindingFactsV1,
+    participant_ids: [u16; 2],
+    deriver_a_identity: String,
+    deriver_b_identity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocalTenantRootRoleShareV1 {
+    identity_digest_b64u: String,
+    custody_lineage_b64u: String,
+    role: String,
+    epoch: u64,
+    share_commitment_b64u: String,
+    epoch_wrapping_key_ref: String,
+    installation_evidence_digest_b64u: String,
+    share_wire_b64u: String,
+    activation_receipt_digest_b64u: String,
+}
+
+impl LocalTenantRootResolverConfigV1 {
+    pub(crate) fn resolve_context(
+        &self,
+        coordinates: &CloudflareTenantRootCoordinatesV1,
+        application: &RouterAbEd25519YaoApplicationBindingFactsV1,
+        participant_ids: [u16; 2],
+        pair_binding: &router_ab_core::Ed25519YaoInputPairBindingV1,
+        issued_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareEd25519YaoTenantRootContextV2> {
+        let key = local_tenant_root_coordinates_key(coordinates)?;
+        let record = self.bindings.get(&key).ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingLocalBinding,
+                "local Router tenant-root coordinates are not configured",
+            )
+        })?;
+        if record.application != *application || record.participant_ids != participant_ids {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "local Router tenant-root application facts do not match its configured binding",
+            ));
+        }
+        let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(
+            &record.activation_receipt_bytes,
+        )
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local tenant-root activation receipt is malformed: {error}"),
+            )
+        })?;
+        let verified = receipt
+            .verify_issuer_signature(&record.issuer_verifying_key)
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    format!("local tenant-root activation receipt is not authenticated: {error}"),
+                )
+            })?;
+        if verified.identity_digest().into_bytes() != coordinates.resolve()?.0.into_bytes()
+            || verified.custody_lineage() != coordinates.resolve()?.1
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "local tenant-root activation receipt does not match its coordinates",
+            ));
+        }
+        if verified
+            .availability()
+            .current_role_backup_receipts()
+            .is_none()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "local tenant-root binding does not contain active role backups",
+            ));
+        }
+        let derivers = router_ab_core::TenantRootDeriverIdentitiesV1::new(
+            record.deriver_a_identity.clone(),
+            record.deriver_b_identity.clone(),
+        )
+        .map_err(map_local_tenant_root_derivation_error)?;
+        cloudflare_ed25519_yao_tenant_root_context_v2(
+            &verified,
+            derivers,
+            application.clone(),
+            participant_ids,
+            pair_binding,
+            issued_at_ms,
+            expires_at_ms,
+        )
+    }
+}
+
+impl LocalTenantRootRoleSharesConfigV1 {
+    pub(crate) fn resolve_for_context(
+        &self,
+        coordinates: &CloudflareTenantRootCoordinatesV1,
+        context: &CloudflareEd25519YaoTenantRootContextV2,
+        role: TwoPartyDeriverRole,
+    ) -> RouterAbProtocolResult<LocalTenantRootRoleShareV1> {
+        let key = local_tenant_root_role_share_key(coordinates, role, context)?;
+        let share = self.shares.get(&key).ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingLocalBinding,
+                format!(
+                    "local {} tenant-root role share is not configured",
+                    role.as_str()
+                ),
+            )
+        })?;
+        let (identity_digest, custody_lineage) = coordinates.resolve()?;
+        if share.binding.identity_digest() != identity_digest
+            || share.binding.custody_lineage() != custody_lineage
+            || share.binding.role() != role
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "local tenant-root role share identity does not match its request",
+            ));
+        }
+        let receipt_bytes = context.custody_binding.activation_receipt_bytes()?;
+        let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes)
+            .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("tenant-root activation receipt is malformed: {error}"),
+            )
+        })?;
+        let (epoch, commitment) = match receipt.binding() {
+            router_ab_core::TenantRootActivationReceiptBindingV1::InitialCreation(binding) => (
+                binding.epoch(),
+                match role {
+                    TwoPartyDeriverRole::DeriverA => binding.commitments().deriver_a(),
+                    TwoPartyDeriverRole::DeriverB => binding.commitments().deriver_b(),
+                },
+            ),
+            router_ab_core::TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => (
+                binding.next_epoch(),
+                match role {
+                    TwoPartyDeriverRole::DeriverA => binding.next_commitments().deriver_a(),
+                    TwoPartyDeriverRole::DeriverB => binding.next_commitments().deriver_b(),
+                },
+            ),
+        };
+        let receipt_digest: [u8; 32] = Sha256::digest(&receipt_bytes).into();
+        if share.binding.epoch() != epoch
+            || share.binding.share_commitment() != commitment
+            || receipt_digest != share.activation_receipt_digest
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "local tenant-root role share does not match the active receipt",
+            ));
+        }
+        Ok(share.clone())
+    }
+}
+
+fn local_tenant_root_coordinates_key(
+    coordinates: &CloudflareTenantRootCoordinatesV1,
+) -> RouterAbProtocolResult<String> {
+    let (identity_digest, custody_lineage) = coordinates.resolve()?;
+    let canonical = format!(
+        "{}|{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(identity_digest.as_bytes()),
+        custody_lineage.to_base64url()
+    );
+    if canonical
+        != format!(
+            "{}|{}",
+            coordinates.identity_digest_b64u, coordinates.custody_lineage_b64u
+        )
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "tenant-root coordinate map key is not canonical",
+        ));
+    }
+    Ok(canonical)
+}
+
+fn local_tenant_root_role_share_key(
+    coordinates: &CloudflareTenantRootCoordinatesV1,
+    role: TwoPartyDeriverRole,
+    context: &CloudflareEd25519YaoTenantRootContextV2,
+) -> RouterAbProtocolResult<String> {
+    let coordinates_key = local_tenant_root_coordinates_key(coordinates)?;
+    let epoch = match role {
+        TwoPartyDeriverRole::DeriverA | TwoPartyDeriverRole::DeriverB => {
+            let receipt_bytes = context.custody_binding.activation_receipt_bytes()?;
+            let receipt =
+                TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes)
+                    .map_err(|error| {
+                        RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::MalformedWirePayload,
+                            format!("tenant-root activation receipt is malformed: {error}"),
+                        )
+                    })?;
+            match receipt.binding() {
+                router_ab_core::TenantRootActivationReceiptBindingV1::InitialCreation(binding) => {
+                    binding.epoch()
+                }
+                router_ab_core::TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => {
+                    binding.next_epoch()
+                }
+            }
+        }
+    };
+    Ok(format!("{coordinates_key}|{}", epoch.get().get()))
+}
+
+pub(crate) fn local_tenant_root_coordinates_for_context_v1(
+    context: &CloudflareEd25519YaoTenantRootContextV2,
+) -> RouterAbProtocolResult<CloudflareTenantRootCoordinatesV1> {
+    let receipt_bytes = context.custody_binding.activation_receipt_bytes()?;
+    let receipt = TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&receipt_bytes)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("tenant-root activation receipt is malformed: {error}"),
+            )
+        })?;
+    let binding = receipt.binding();
+    let coordinates = CloudflareTenantRootCoordinatesV1 {
+        identity_digest_b64u: base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(binding.identity_digest().as_bytes()),
+        custody_lineage_b64u: binding.custody_lineage().to_base64url(),
+    };
+    coordinates.resolve()?;
+    Ok(coordinates)
+}
+
+fn parse_local_tenant_root_bindings_json_v1(
+    value: &str,
+) -> RouterAbProtocolResult<LocalTenantRootResolverConfigV1> {
+    let raw = serde_json::from_str::<BTreeMap<String, RawLocalTenantRootBindingV1>>(value)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local tenant-root bindings JSON is malformed: {error}"),
+            )
+        })?;
+    let mut bindings = BTreeMap::new();
+    for (key, record) in raw {
+        let coordinates = parse_local_tenant_root_coordinate_key(&key)?;
+        let canonical_key = local_tenant_root_coordinates_key(&coordinates)?;
+        if key != canonical_key {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root binding map key is not canonical",
+            ));
+        }
+        let activation_receipt_bytes = decode_local_base64url_bytes_v1(
+            "local tenant-root activation receipt",
+            &record.activation_receipt_b64u,
+        )?;
+        let receipt =
+            TenantRootSignedActivationReceiptV1::decode_canonical_bytes(&activation_receipt_bytes)
+                .map_err(|error| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        format!("local tenant-root activation receipt is malformed: {error}"),
+                    )
+                })?;
+        let issuer_verifying_key = decode_local_hex_fixed_v1(
+            "local tenant-root issuer verifying key",
+            &record.issuer_verifying_key_hex,
+            32,
+        )?;
+        if issuer_verifying_key.iter().all(|byte| *byte == 0) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root issuer verifying key must be nonzero",
+            ));
+        }
+        if record.participant_ids[0] == 0 || record.participant_ids[0] >= record.participant_ids[1]
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root participant ids must be ascending nonzero values",
+            ));
+        }
+        if receipt.binding().identity_digest() != coordinates.resolve()?.0
+            || receipt.binding().custody_lineage() != coordinates.resolve()?.1
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root activation receipt does not match its map key",
+            ));
+        }
+        router_ab_core::TenantRootDeriverIdentitiesV1::new(
+            record.deriver_a_identity.clone(),
+            record.deriver_b_identity.clone(),
+        )
+        .map_err(map_local_tenant_root_derivation_error)?;
+        let binding = LocalTenantRootBindingV1 {
+            activation_receipt_bytes,
+            issuer_verifying_key,
+            application: record.application,
+            participant_ids: record.participant_ids,
+            deriver_a_identity: record.deriver_a_identity,
+            deriver_b_identity: record.deriver_b_identity,
+        };
+        if bindings.insert(canonical_key, binding).is_some() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root binding map contains a duplicate key",
+            ));
+        }
+    }
+    Ok(LocalTenantRootResolverConfigV1 { bindings })
+}
+
+fn parse_local_tenant_root_role_shares_json_v1(
+    value: &str,
+) -> RouterAbProtocolResult<LocalTenantRootRoleSharesConfigV1> {
+    let raw = serde_json::from_str::<BTreeMap<String, RawLocalTenantRootRoleShareV1>>(value)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local tenant-root role shares JSON is malformed: {error}"),
+            )
+        })?;
+    let mut shares = BTreeMap::new();
+    for (key, record) in raw {
+        let (coordinates, key_epoch) = parse_local_tenant_root_role_share_key(&key)?;
+        let (identity_digest, custody_lineage) = coordinates.resolve()?;
+        let record_identity = decode_local_base64url_fixed_v1(
+            "local tenant-root role-share identity digest",
+            &record.identity_digest_b64u,
+            32,
+        )?;
+        if record_identity != identity_digest.into_bytes() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root role-share identity does not match its map key",
+            ));
+        }
+        let record_lineage = router_ab_core::TenantRootCustodyLineageId::from_base64url(
+            &record.custody_lineage_b64u,
+        )
+        .map_err(map_local_tenant_root_derivation_error)?;
+        if record_lineage != custody_lineage {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root role-share lineage does not match its map key",
+            ));
+        }
+        let role = match record.role.as_str() {
+            "deriver_a" => TwoPartyDeriverRole::DeriverA,
+            "deriver_b" => TwoPartyDeriverRole::DeriverB,
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "local tenant-root role-share role is invalid",
+                ))
+            }
+        };
+        let epoch = TenantRootShareEpoch::new(record.epoch)
+            .map_err(map_local_tenant_root_derivation_error)?;
+        if epoch.get().get() != key_epoch {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root role-share epoch does not match its map key",
+            ));
+        }
+        let commitment =
+            router_ab_core::MpcPrfShareCommitmentWireV1::new(decode_local_base64url_bytes_v1(
+                "local tenant-root role-share commitment",
+                &record.share_commitment_b64u,
+            )?)
+            .map_err(map_local_tenant_root_derivation_error)?;
+        let evidence_digest =
+            TenantRootLifecycleReceiptDigestV1::from_bytes(decode_local_base64url_fixed_v1(
+                "local tenant-root installation evidence digest",
+                &record.installation_evidence_digest_b64u,
+                32,
+            )?)
+            .map_err(map_local_tenant_root_derivation_error)?;
+        let activation_receipt_digest = decode_local_base64url_fixed_v1(
+            "local tenant-root activation receipt digest",
+            &record.activation_receipt_digest_b64u,
+            32,
+        )?;
+        if activation_receipt_digest.iter().all(|byte| *byte == 0) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root activation receipt digest must be non-zero",
+            ));
+        }
+        let binding = TenantRootOnlineRoleShareBindingV1::from_persisted(
+            identity_digest,
+            custody_lineage,
+            role,
+            epoch,
+            commitment,
+            record.epoch_wrapping_key_ref,
+            evidence_digest,
+        )
+        .map_err(map_local_tenant_root_derivation_error)?;
+        let share_wire = SigningRootShareWire::decode_slice(&decode_local_base64url_bytes_v1(
+            "local tenant-root role-share wire",
+            &record.share_wire_b64u,
+        )?)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local tenant-root role-share wire is invalid: {error}"),
+            )
+        })?;
+        let share = share_wire.to_share().map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local tenant-root role-share wire is invalid: {error}"),
+            )
+        })?;
+        if TwoPartyDeriverRole::from_share_id(share.id()).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local tenant-root role-share id is invalid: {error}"),
+            )
+        })? != role
+            || SigningRootShareCommitment::from_share(&share)
+                .to_bytes()
+                .as_ref()
+                != binding.share_commitment().as_bytes()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root role-share wire does not match its commitment",
+            ));
+        }
+        if shares
+            .insert(
+                key,
+                LocalTenantRootRoleShareV1 {
+                    binding,
+                    share_wire,
+                    activation_receipt_digest,
+                },
+            )
+            .is_some()
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local tenant-root role-share map contains a duplicate key",
+            ));
+        }
+    }
+    Ok(LocalTenantRootRoleSharesConfigV1 { shares })
+}
+
+fn parse_local_tenant_root_coordinate_key(
+    value: &str,
+) -> RouterAbProtocolResult<CloudflareTenantRootCoordinatesV1> {
+    let mut parts = value.split('|');
+    let identity_digest_b64u = parts.next().unwrap_or_default().to_owned();
+    let custody_lineage_b64u = parts.next().unwrap_or_default().to_owned();
+    if parts.next().is_some() || identity_digest_b64u.is_empty() || custody_lineage_b64u.is_empty()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local tenant-root map key must be identity_digest_b64u|custody_lineage_b64u",
+        ));
+    }
+    let coordinates = CloudflareTenantRootCoordinatesV1 {
+        identity_digest_b64u,
+        custody_lineage_b64u,
+    };
+    coordinates.resolve()?;
+    Ok(coordinates)
+}
+
+fn parse_local_tenant_root_role_share_key(
+    value: &str,
+) -> RouterAbProtocolResult<(CloudflareTenantRootCoordinatesV1, u64)> {
+    let mut parts = value.split('|');
+    let identity = parts.next().unwrap_or_default();
+    let lineage = parts.next().unwrap_or_default();
+    let epoch = parts.next().unwrap_or_default();
+    if parts.next().is_some() || identity.is_empty() || lineage.is_empty() || epoch.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local tenant-root role-share key must be coordinates|epoch",
+        ));
+    }
+    let epoch = epoch.parse::<u64>().map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("local tenant-root role-share epoch is invalid: {error}"),
+        )
+    })?;
+    if epoch == 0 || epoch.to_string() != value.rsplit('|').next().unwrap_or_default() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local tenant-root role-share epoch is not canonical",
+        ));
+    }
+    Ok((
+        parse_local_tenant_root_coordinate_key(&format!("{identity}|{lineage}"))?,
+        epoch,
+    ))
+}
+
+fn decode_local_base64url_bytes_v1(
+    field: &'static str,
+    value: &str,
+) -> RouterAbProtocolResult<Vec<u8>> {
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{field} is not canonical base64url: {error}"),
+            )
+        })?;
+    if base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes) != value {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{field} is not canonical base64url"),
+        ));
+    }
+    Ok(bytes)
+}
+
+fn decode_local_base64url_fixed_v1<const N: usize>(
+    field: &'static str,
+    value: &str,
+    expected: usize,
+) -> RouterAbProtocolResult<[u8; N]> {
+    if expected != N {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local fixed-base64 helper size mismatch",
+        ));
+    }
+    decode_local_base64url_bytes_v1(field, value)?
+        .try_into()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{field} must contain exactly {N} bytes"),
+            )
+        })
+}
+
+fn decode_local_hex_fixed_v1<const N: usize>(
+    field: &'static str,
+    value: &str,
+    expected: usize,
+) -> RouterAbProtocolResult<[u8; N]> {
+    if expected != N {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local fixed-hex helper size mismatch",
+        ));
+    }
+    hex::decode(value)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{field} is not hex: {error}"),
+            )
+        })?
+        .try_into()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{field} must contain exactly {N} bytes"),
+            )
+        })
+}
+
+fn map_local_tenant_root_derivation_error(
+    error: router_ab_core::RouterAbDerivationError,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        error.to_string(),
+    )
+}
 
 /// Router local worker config after raw env parsing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -489,6 +1178,8 @@ pub struct LocalRouterWorkerConfigV1 {
     pub signing_worker_id: String,
     /// Local private service authentication value.
     pub internal_service_auth: String,
+    /// Authenticated server-owned tenant-root resolver.
+    pub tenant_root_resolver: LocalTenantRootResolverConfigV1,
 }
 
 /// Deriver A local worker config after raw env parsing.
@@ -500,10 +1191,10 @@ pub struct LocalDeriverAWorkerConfigV1 {
     pub deriver_b_url: String,
     /// Deriver A envelope HPKE private key.
     pub envelope_hpke_private_key: String,
-    /// Deriver A root-share wire secret.
-    pub root_share_wire_secret: String,
-    /// Deriver A Ed25519 Yao server-contribution root.
-    pub ed25519_yao_derivation_root_hex: String,
+    /// Authenticated Deriver A role-share map.
+    pub tenant_root_role_shares: LocalTenantRootRoleSharesConfigV1,
+    /// Deriver B HPKE public key used to seal A's V2 target proof.
+    pub target_proof_peer_public_key: String,
     /// Deriver A peer signing key.
     pub peer_signing_key: String,
     /// Deriver A peer verifying key.
@@ -512,8 +1203,6 @@ pub struct LocalDeriverAWorkerConfigV1 {
     pub deriver_b_peer_verifying_key: String,
     /// Deriver A role-private SQLite path.
     pub role_private_storage_path: String,
-    /// Deriver A sealed root-share storage path.
-    pub sealed_root_shares_path: String,
 }
 
 /// Deriver B local worker config after raw env parsing.
@@ -525,10 +1214,10 @@ pub struct LocalDeriverBWorkerConfigV1 {
     pub deriver_a_url: String,
     /// Deriver B envelope HPKE private key.
     pub envelope_hpke_private_key: String,
-    /// Deriver B root-share wire secret.
-    pub root_share_wire_secret: String,
-    /// Deriver B Ed25519 Yao server-contribution root.
-    pub ed25519_yao_derivation_root_hex: String,
+    /// Authenticated Deriver B role-share map.
+    pub tenant_root_role_shares: LocalTenantRootRoleSharesConfigV1,
+    /// Deriver A HPKE public key used to seal B's V2 target proof.
+    pub target_proof_peer_public_key: String,
     /// Deriver B peer signing key.
     pub peer_signing_key: String,
     /// Deriver A peer verifying key.
@@ -537,8 +1226,6 @@ pub struct LocalDeriverBWorkerConfigV1 {
     pub deriver_b_peer_verifying_key: String,
     /// Deriver B role-private SQLite path.
     pub role_private_storage_path: String,
-    /// Deriver B sealed root-share storage path.
-    pub sealed_root_shares_path: String,
 }
 
 /// SigningWorker local worker config after raw env parsing.
@@ -698,7 +1385,6 @@ pub fn local_env_materialization_plan_v1(
     seed: &[u8],
 ) -> RouterAbProtocolResult<LocalEnvMaterializationPlanV1> {
     require_non_empty("local env materialization seed", &hex::encode(seed))?;
-    let root_shares = local_ecdsa_root_share_package_v1(seed)?;
     let plan = LocalEnvMaterializationPlanV1 {
         directories: vec![
             LOCAL_DERIVER_A_STATE_DIR_V1.to_owned(),
@@ -712,7 +1398,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/router.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -721,7 +1406,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-a.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -730,7 +1414,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/deriver-b.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
             LocalEnvMaterializedFileV1 {
@@ -739,7 +1422,6 @@ pub fn local_env_materialization_plan_v1(
                 contents: materialize_template_v1(
                     include_str!("../env/signing-worker.local.example"),
                     seed,
-                    &root_shares,
                 )?,
             },
         ],
@@ -838,6 +1520,10 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     &env,
                     LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_ENV_V1,
                 )?,
+                tenant_root_resolver: parse_local_tenant_root_bindings_json_v1(&required_env_v1(
+                    &env,
+                    LOCAL_TENANT_ROOT_BINDINGS_JSON_ENV_V1,
+                )?)?,
             }))
         }
         LocalServiceRoleV1::DeriverA => {
@@ -850,13 +1536,12 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
                     )?,
-                    root_share_wire_secret: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+                    tenant_root_role_shares: parse_local_tenant_root_role_shares_json_v1(
+                        &required_env_v1(&env, LOCAL_TENANT_ROOT_ROLE_SHARES_JSON_ENV_V1)?,
                     )?,
-                    ed25519_yao_derivation_root_hex: required_hex_32_env_v1(
+                    target_proof_peer_public_key: required_x25519_public_key_env_v1(
                         &env,
-                        LOCAL_DERIVER_A_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
+                        LOCAL_DERIVER_A_TARGET_PROOF_PEER_PUBLIC_KEY_ENV_V1,
                     )?,
                     peer_signing_key: required_env_v1(
                         &env,
@@ -874,10 +1559,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_A_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
                     )?,
-                    sealed_root_shares_path: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
-                    )?,
                 },
             ))
         }
@@ -891,13 +1572,12 @@ pub fn parse_local_worker_role_config_for_role_v1(
                         &env,
                         LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
                     )?,
-                    root_share_wire_secret: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+                    tenant_root_role_shares: parse_local_tenant_root_role_shares_json_v1(
+                        &required_env_v1(&env, LOCAL_TENANT_ROOT_ROLE_SHARES_JSON_ENV_V1)?,
                     )?,
-                    ed25519_yao_derivation_root_hex: required_hex_32_env_v1(
+                    target_proof_peer_public_key: required_x25519_public_key_env_v1(
                         &env,
-                        LOCAL_DERIVER_B_ED25519_YAO_DERIVATION_ROOT_ENV_V1,
+                        LOCAL_DERIVER_B_TARGET_PROOF_PEER_PUBLIC_KEY_ENV_V1,
                     )?,
                     peer_signing_key: required_env_v1(
                         &env,
@@ -914,10 +1594,6 @@ pub fn parse_local_worker_role_config_for_role_v1(
                     role_private_storage_path: required_env_v1(
                         &env,
                         LOCAL_DERIVER_B_ROLE_PRIVATE_STORAGE_PATH_ENV_V1,
-                    )?,
-                    sealed_root_shares_path: required_env_v1(
-                        &env,
-                        LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
                     )?,
                 },
             ))
@@ -2037,7 +2713,7 @@ fn sealed_share_record(role: Role) -> RouterAbProtocolResult<LocalSealedRootShar
 }
 
 fn local_ecdsa_threshold_prf_request_v1() -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
-    let account_public_key = LOCAL_DEV_ACCOUNT_PUBLIC_KEY_V1.to_owned();
+    let account_public_key = LOCAL_DEV_APPLICATION_BINDING_DIGEST_B64U_V1.to_owned();
     let lifecycle = local_lifecycle_scope_v1(LOCAL_DEV_ACCOUNT_ID_V1)?;
     let signer_set = signer_set_v1()?;
     let metadata = RouterTranscriptMetadataV1::new(
@@ -2317,21 +2993,9 @@ fn map_local_http_io_error_v1(error: std::io::Error) -> RouterAbProtocolError {
     )
 }
 
-fn materialize_template_v1(
-    template: &str,
-    seed: &[u8],
-    root_shares: &LocalEcdsaRootSharePackageV1,
-) -> RouterAbProtocolResult<String> {
+fn materialize_template_v1(template: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
     require_non_empty("local env materialization template", template)?;
     let mut contents = template.to_owned();
-    contents = contents.replace(
-        "dev-only-deriver-a-root-share-wire-secret",
-        &root_shares.deriver_a_root_share_wire_secret,
-    );
-    contents = contents.replace(
-        "dev-only-deriver-b-root-share-wire-secret",
-        &root_shares.deriver_b_root_share_wire_secret,
-    );
     for (placeholder, label) in [
         (
             "dev-only-deriver-a-peer-signing-key",
@@ -2361,19 +3025,6 @@ fn materialize_template_v1(
             .verifying_key()
             .to_bytes();
         contents = contents.replace(placeholder, &hex::encode(verifying_key));
-    }
-    for (placeholder, label) in [
-        (
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "deriver-a-ed25519-yao-derivation-root",
-        ),
-        (
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "deriver-b-ed25519-yao-derivation-root",
-        ),
-    ] {
-        let material = local_generated_secret_bytes_v1(label, seed)?;
-        contents = contents.replace(placeholder, &hex::encode(material));
     }
     for (private_placeholder, public_placeholder, label) in [
         (

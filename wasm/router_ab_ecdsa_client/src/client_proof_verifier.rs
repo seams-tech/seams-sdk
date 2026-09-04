@@ -1,9 +1,11 @@
 use crate::encoders::base64_url_decode;
 use router_ab_ecdsa_client_protocol::{
     decode_ecdsa_client_proof_bundle_envelope_v1, finalize_ecdsa_prf_two_party_output_v1,
-    open_ecdsa_client_proof_bundle_v1, pair_ecdsa_opened_client_proof_bundles_v1,
+    finalize_ecdsa_stable_prf_two_party_output_v2, open_ecdsa_client_proof_bundle_v1,
+    open_ecdsa_client_proof_bundle_v2, pair_ecdsa_opened_client_proof_bundles_v1,
     EcdsaClientProofBundleDeliveryKindV1, EcdsaClientProofBundleDeliveryV1,
-    EcdsaClientProofBundlePairDeliveryV1,
+    EcdsaClientProofBundlePairDeliveryV1, EcdsaOpenedClientProofBundleV2,
+    EcdsaRoleBoundStablePrfProofV2, EcdsaStablePrfPublicContextV2,
 };
 use serde::Deserialize;
 
@@ -14,6 +16,47 @@ pub(crate) fn finalize_encrypted_client_proof_output_v1(
     let input: FinalizeEncryptedClientProofBundlesInputV1 =
         serde_json::from_str(input_json).map_err(|error| error.to_string())?;
     finalize_encrypted_client_proof_input_v1(input, private_key)
+}
+
+pub(crate) fn finalize_encrypted_client_proof_output_v2(
+    input_json: &str,
+    private_key: &[u8; 32],
+    application_binding_digest: [u8; 32],
+) -> Result<[u8; 32], String> {
+    let input: FinalizeEncryptedClientProofBundlesInputV2 =
+        serde_json::from_str(input_json).map_err(|error| error.to_string())?;
+    finalize_encrypted_client_proof_input_v2(input, private_key, application_binding_digest)
+}
+
+pub(crate) fn finalize_encrypted_client_proof_input_v2(
+    input: FinalizeEncryptedClientProofBundlesInputV2,
+    private_key: &[u8; 32],
+    application_binding_digest: [u8; 32],
+) -> Result<[u8; 32], String> {
+    let (signer_a, signer_b) = open_client_proof_pair_v2(input, private_key)?;
+    if signer_a.transcript_digest != signer_b.transcript_digest
+        || signer_a.recipient_identity != signer_b.recipient_identity
+        || signer_a.proof.stable_context_digest != signer_b.proof.stable_context_digest
+        || signer_a.proof.custody_binding_digest != signer_b.proof.custody_binding_digest
+    {
+        return Err("Router A/B ECDSA stable client proof bundles do not match".to_owned());
+    }
+    let context = EcdsaStablePrfPublicContextV2::new(
+        application_binding_digest,
+        signer_a.proof.custody_binding_digest,
+    );
+    finalize_ecdsa_stable_prf_two_party_output_v2(
+        &context,
+        &EcdsaRoleBoundStablePrfProofV2 {
+            role: signer_a.signer.role,
+            proof: signer_a.proof,
+        },
+        &EcdsaRoleBoundStablePrfProofV2 {
+            role: signer_b.signer.role,
+            proof: signer_b.proof,
+        },
+    )
+    .map_err(protocol_error)
 }
 
 pub(crate) fn finalize_encrypted_client_proof_input_v1(
@@ -71,6 +114,24 @@ fn open_client_proof_pair(
     pair_ecdsa_opened_client_proof_bundles_v1(signer_a, signer_b).map_err(protocol_error)
 }
 
+fn open_client_proof_pair_v2(
+    input: FinalizeEncryptedClientProofBundlesInputV2,
+    private_key: &[u8; 32],
+) -> Result<
+    (
+        EcdsaOpenedClientProofBundleV2,
+        EcdsaOpenedClientProofBundleV2,
+    ),
+    String,
+> {
+    match input.kind {
+        FinalizeEncryptedClientProofBundlesKindV2::FinalizeEncryptedClientProofBundlesV2 => {}
+    }
+    let signer_a = open_client_wire_bundle_v2(input.bundles.signer_a, private_key)?;
+    let signer_b = open_client_wire_bundle_v2(input.bundles.signer_b, private_key)?;
+    Ok((signer_a, signer_b))
+}
+
 fn open_client_wire_bundle(
     input: EcdsaClientProofBundleDeliveryV1,
     private_key: &[u8; 32],
@@ -87,6 +148,24 @@ fn open_client_wire_bundle(
         return Err("recipient proof-bundle WireMessage transcript digest mismatch".to_owned());
     }
     open_ecdsa_client_proof_bundle_v1(&envelope, private_key).map_err(protocol_error)
+}
+
+fn open_client_wire_bundle_v2(
+    input: EcdsaClientProofBundleDeliveryV1,
+    private_key: &[u8; 32],
+) -> Result<EcdsaOpenedClientProofBundleV2, String> {
+    match input.kind {
+        EcdsaClientProofBundleDeliveryKindV1::RecipientProofBundle => {}
+    }
+    let wire_transcript_digest =
+        decode_fixed_base64::<32>(&input.transcript_digest_b64u, "bundle.transcriptDigestB64u")?;
+    let payload = decode_nonempty_base64(&input.payload_b64u, "bundle.payloadB64u")?;
+    let envelope =
+        decode_ecdsa_client_proof_bundle_envelope_v1(&payload).map_err(protocol_error)?;
+    if envelope.transcript_digest != wire_transcript_digest {
+        return Err("recipient proof-bundle WireMessage transcript digest mismatch".to_owned());
+    }
+    open_ecdsa_client_proof_bundle_v2(&envelope, private_key).map_err(protocol_error)
 }
 
 fn decode_fixed_base64<const N: usize>(value: &str, field: &str) -> Result<[u8; N], String> {
@@ -119,4 +198,17 @@ pub(crate) struct FinalizeEncryptedClientProofBundlesInputV1 {
 enum FinalizeEncryptedClientProofBundlesKindV1 {
     #[serde(rename = "finalize_encrypted_client_proof_bundles_v1")]
     FinalizeEncryptedClientProofBundlesV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FinalizeEncryptedClientProofBundlesInputV2 {
+    kind: FinalizeEncryptedClientProofBundlesKindV2,
+    bundles: EcdsaClientProofBundlePairDeliveryV1,
+}
+
+#[derive(Debug, Deserialize)]
+enum FinalizeEncryptedClientProofBundlesKindV2 {
+    #[serde(rename = "finalize_encrypted_client_proof_bundles_v2")]
+    FinalizeEncryptedClientProofBundlesV2,
 }

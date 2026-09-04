@@ -446,6 +446,7 @@ dependencies = [
  "rand_core 0.6.4",
  "sha2 0.10.9",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -801,7 +802,7 @@ dependencies = [
  "rand_core 0.6.4",
  "rand_core 0.9.5",
  "sha2 0.11.0",
- "sha3",
+ "sha3 0.12.0",
  "subtle",
  "x25519-dalek",
  "zeroize",
@@ -874,6 +875,15 @@ dependencies = [
  "elliptic-curve 0.13.8",
  "sha2 0.10.9",
  "signature",
+]
+
+[[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.17",
 ]
 
 [[package]]
@@ -1037,6 +1047,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ppv-lite86"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
+dependencies = [
+ "zerocopy",
+]
+
+[[package]]
 name = "primeorder"
 version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1079,6 +1098,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
+name = "rand_chacha"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.6.4",
+]
+
+[[package]]
 name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1112,11 +1141,15 @@ dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",
  "hex",
+ "hmac 0.12.1",
+ "hpke-ng",
  "rand_core 0.6.4",
+ "rand_core 0.9.5",
  "router-ab-ecdsa-client-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "threshold-prf",
  "zeroize",
 ]
@@ -1134,6 +1167,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "router-ab-ecdsa-derivation"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sha3 0.10.9",
+ "zeroize",
+]
+
+[[package]]
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
@@ -1144,13 +1190,17 @@ dependencies = [
  "ed25519-yao",
  "frost-ed25519",
  "hpke-ng",
+ "rand_chacha",
+ "rand_core 0.6.4",
  "rand_core 0.9.5",
  "router-ab-core",
+ "router-ab-ecdsa-derivation",
  "router-ab-ed25519-yao-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "signer-core",
+ "threshold-prf",
  "zeroize",
 ]
 
@@ -1297,12 +1347,22 @@ dependencies = [
 
 [[package]]
 name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest 0.10.7",
+ "keccak 0.1.6",
+]
+
+[[package]]
+name = "sha3"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc9bad02c26382724b2d2692c6f179285e4b54eeecd7968f52a50059c3c11759"
 dependencies = [
  "digest 0.11.3",
- "keccak",
+ "keccak 0.2.0",
  "sponge-cursor",
 ]
 
@@ -1313,7 +1373,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09057cb2149ad4cbd2da1e26b351f9a4c354219421229c69c3063e6f61947c4a"
 dependencies = [
  "digest 0.11.3",
- "keccak",
+ "keccak 0.2.0",
  "sponge-cursor",
 ]
 
@@ -1425,7 +1485,6 @@ version = "0.1.0"
 dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
- "router-ab-ecdsa-client-protocol",
  "sha2 0.10.9",
  "subtle",
  "zeroize",
@@ -1599,6 +1658,26 @@ dependencies = [
  "curve25519-dalek",
  "rand_core 0.6.4",
  "zeroize",
+]
+
+[[package]]
+name = "zerocopy"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "556764e583adb45a9f8d413c2a147fa7e8d821e48e12b14fd560b607998b75eb"
+dependencies = [
+ "zerocopy-derive",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.8.56"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2ab42fc20575779bd240faa45f94a74256f755c0fa9e89f0ede20d91d0cdfc1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

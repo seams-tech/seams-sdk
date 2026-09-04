@@ -3,7 +3,7 @@ use rand_core::SeedableRng;
 use router_ab_core::{
     plan_mpc_prf_purpose_binding_v1, AccountScope, DerivationContext, MpcPrfOutputPurposeV1,
     MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1, OpenedShareKind, RequestKind, Role,
-    RootShareEpoch, SignerSetBinding, TranscriptBinding,
+    RootShareEpoch, SignerSetBinding, StableTenantDerivationContextV2, TranscriptBinding,
 };
 use threshold_prf::reference::evaluate_direct_reference;
 use threshold_prf::{
@@ -13,12 +13,13 @@ use threshold_prf::{
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId};
 
 fn context() -> DerivationContext {
+    let application_binding_digest_b64u = stable_context().application_binding_digest_b64u();
     DerivationContext::new(
         RequestKind::Registration,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            application_binding_digest_b64u,
         )
         .expect("account scope"),
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -78,15 +79,20 @@ fn signer_input(output_requests: Vec<MpcPrfOutputRequestV1>) -> MpcPrfSignerPart
 }
 
 fn context_for_ceremony(ceremony_id: &str) -> DerivationContext {
+    context_for_ceremony_and_epoch(ceremony_id, "epoch-1")
+}
+
+fn context_for_ceremony_and_epoch(ceremony_id: &str, epoch: &str) -> DerivationContext {
+    let application_binding_digest_b64u = stable_context().application_binding_digest_b64u();
     DerivationContext::new(
         RequestKind::Registration,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            application_binding_digest_b64u,
         )
         .expect("account scope"),
-        RootShareEpoch::new("epoch-1").expect("epoch"),
+        RootShareEpoch::new(epoch).expect("epoch"),
         ceremony_id,
     )
     .expect("context")
@@ -120,15 +126,20 @@ fn signer_input_for_transcript(
     transcript: TranscriptBinding,
     request: MpcPrfOutputRequestV1,
 ) -> MpcPrfSignerPartialInputV1 {
+    let root_share_epoch = context.root_share_epoch().clone();
     MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
         Role::SignerA,
         "role:signer-a:local:sha256-a",
-        RootShareEpoch::new("epoch-1").expect("epoch"),
+        root_share_epoch,
         vec![request],
     )
     .expect("signer input")
+}
+
+fn stable_context() -> StableTenantDerivationContextV2 {
+    StableTenantDerivationContextV2::new([0x42; 32])
 }
 
 fn threshold_purpose(output_purpose: MpcPrfOutputPurposeV1) -> PrfPurpose {
@@ -218,7 +229,7 @@ fn client_and_server_purpose_plans_produce_distinct_outputs() {
 }
 
 #[test]
-fn fresh_ceremony_transcript_produces_a_distinct_client_share_output() {
+fn fresh_ceremony_transcript_keeps_stable_client_share_output() {
     let request = output_request(OpenedShareKind::XClientBase);
     let registration_context = context_for_ceremony("registration-ceremony");
     let recovery_context = context_for_ceremony("recovery-ceremony");
@@ -251,14 +262,67 @@ fn fresh_ceremony_transcript_produces_a_distinct_client_share_output() {
         .expect("recovery output");
 
     assert_ne!(
+        registration_plan.transcript_digest,
+        recovery_plan.transcript_digest
+    );
+    assert_eq!(
+        registration_plan.threshold_prf_context_bytes,
+        stable_context().canonical_context_bytes()
+    );
+    assert_eq!(
         registration_plan.threshold_prf_context_digest,
         recovery_plan.threshold_prf_context_digest
     );
-    assert_ne!(registration_output, recovery_output);
+    assert_eq!(
+        registration_plan.threshold_prf_context_bytes,
+        recovery_plan.threshold_prf_context_bytes
+    );
+    assert_eq!(registration_output, recovery_output);
 }
 
 #[test]
-fn client_recipient_substitution_produces_a_distinct_client_share_output() {
+fn root_share_epoch_stays_out_of_stable_client_share_input() {
+    let request = output_request(OpenedShareKind::XClientBase);
+    let first_context = context_for_ceremony_and_epoch("same-ceremony", "epoch-1");
+    let second_context = context_for_ceremony_and_epoch("same-ceremony", "epoch-2");
+    let first_input = signer_input_for_transcript(
+        first_context.clone(),
+        transcript_for_client_recipient(first_context, "x25519:same-client-ephemeral-public-key"),
+        request.clone(),
+    );
+    let second_input = signer_input_for_transcript(
+        second_context.clone(),
+        transcript_for_client_recipient(second_context, "x25519:same-client-ephemeral-public-key"),
+        request.clone(),
+    );
+    let first_plan = plan_mpc_prf_purpose_binding_v1(&first_input, &request).expect("first plan");
+    let second_plan =
+        plan_mpc_prf_purpose_binding_v1(&second_input, &request).expect("second plan");
+    let mut setup_rng = seeded_rng(46);
+    let root = generate_signing_root(&mut setup_rng);
+    let first_output =
+        evaluate_direct_reference(&root, &threshold_context(&first_plan)).expect("first output");
+    let second_output =
+        evaluate_direct_reference(&root, &threshold_context(&second_plan)).expect("second output");
+
+    assert_ne!(first_plan.transcript_digest, second_plan.transcript_digest);
+    assert_eq!(
+        first_plan.threshold_prf_context_bytes,
+        stable_context().canonical_context_bytes()
+    );
+    assert_eq!(
+        first_plan.threshold_prf_context_bytes,
+        second_plan.threshold_prf_context_bytes
+    );
+    assert_eq!(
+        first_plan.threshold_prf_context_digest,
+        second_plan.threshold_prf_context_digest
+    );
+    assert_eq!(first_output, second_output);
+}
+
+#[test]
+fn client_recipient_substitution_keeps_stable_client_share_output() {
     let request = output_request(OpenedShareKind::XClientBase);
     let first_context = context_for_ceremony("same-ceremony");
     let second_context = first_context.clone();
@@ -285,9 +349,18 @@ fn client_recipient_substitution_produces_a_distinct_client_share_output() {
     let second_output =
         evaluate_direct_reference(&root, &threshold_context(&second_plan)).expect("second output");
 
-    assert_ne!(
+    assert_ne!(first_plan.transcript_digest, second_plan.transcript_digest);
+    assert_eq!(
+        first_plan.threshold_prf_context_bytes,
+        stable_context().canonical_context_bytes()
+    );
+    assert_eq!(
         first_plan.threshold_prf_context_digest,
         second_plan.threshold_prf_context_digest
     );
-    assert_ne!(first_output, second_output);
+    assert_eq!(
+        first_plan.threshold_prf_context_bytes,
+        second_plan.threshold_prf_context_bytes
+    );
+    assert_eq!(first_output, second_output);
 }

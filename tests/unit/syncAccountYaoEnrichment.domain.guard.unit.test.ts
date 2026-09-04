@@ -54,7 +54,10 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import { seedFoundingPasskeyAuthority } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
+  FixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../helpers/routerAbSigningRuntimeTestUtils';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import { parsePasskeyEd25519YaoSyncResponseV1 } from '../../packages/wallet/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 
@@ -264,12 +267,6 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     throw new Error('registration activation is outside sync-account enrichment');
   }
 
-  replayActivatedRegistration(): ReturnType<
-    RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
-  > {
-    throw new Error('registration replay is outside sync-account enrichment');
-  }
-
   installRegistrationFinalizeCapability(
     _input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -316,13 +313,10 @@ function replaceWebAuthnService(
     emailOtp: service.emailOtp,
     webAuthn,
     identity: service.identity,
-    sessionVersions: service.sessionVersions,
-    sessionExchanges: service.sessionExchanges,
     authorizationSessions: service.authorizationSessions,
     authorizedOperations: service.authorizedOperations,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,
-    recovery: service.recovery,
     router: service.router,
     passkeyCustody: {
       ...service.passkeyCustody,
@@ -398,6 +392,7 @@ function createBaseService(
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
+    tenantRootCustodyLineage: FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
   });
 }
 
@@ -521,7 +516,7 @@ async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
     expect(responseBody.thresholdEd25519.session).not.toHaveProperty('sessionKind');
 
     const replayResponse = await router(syncAccountVerifyRequest());
-    expect(replayResponse.status).toBe(409);
+    expect(replayResponse.status, await replayResponse.clone().text()).toBe(409);
     const replayBody = await replayResponse.json();
     expect(replayBody).toMatchObject({
       ok: false,

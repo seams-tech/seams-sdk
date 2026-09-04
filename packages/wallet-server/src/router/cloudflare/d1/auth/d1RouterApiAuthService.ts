@@ -1655,6 +1655,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
+    tenantRootCustodyLineage: options.tenantRootCustodyLineage,
     getWalletStore,
     activateSideEffects: walletRegistrationActivateSideEffectStore(options),
     nearProvisioningSideEffects: walletRegistrationNearProvisioningSideEffectStore(options),
@@ -1667,6 +1668,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getEd25519YaoProductRegistration: () => resolveEd25519YaoProductRegistration(options),
     ecdsaStrictRegistration: options.ecdsaStrictRegistration,
+    tenantRootCustodyLineage: options.tenantRootCustodyLineage,
     getWalletStore,
     walletAuthMethods,
     passkeyCustodyEnvelopes,
@@ -1866,10 +1868,17 @@ function createD1WalletRegistrationRouteService(
       assembly.walletRegistrations.resolveEd25519MaterialActivation.bind(
         assembly.walletRegistrations,
       ),
+    resolveActiveEd25519TenantRoot:
+      assembly.walletRegistrations.resolveActiveEd25519TenantRoot.bind(
+        assembly.walletRegistrations,
+      ),
     resolveEcdsaMaterialActivation:
       assembly.walletRegistrations.resolveEcdsaMaterialActivation.bind(
         assembly.walletRegistrations,
       ),
+    resolveActiveEcdsaTenantRoot: assembly.walletRegistrations.resolveActiveEcdsaTenantRoot.bind(
+      assembly.walletRegistrations,
+    ),
     listWalletEcdsaKeyFactsInventory:
       assembly.walletRegistrations.listWalletEcdsaKeyFactsInventory.bind(
         assembly.walletRegistrations,

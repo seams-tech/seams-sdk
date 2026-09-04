@@ -1,8 +1,12 @@
+import type { TenantRootIdentityV1 } from '../tenantRootCreation/types';
+import type { ApiCredentialScope } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+
 // The exact private service-binding surface between the Wallet Gateway and
-// the Wallet Console deployment (R105 Phase 4). Four operations cross the
+// the Wallet Console deployment (R105 Phase 4). Five operations cross the
 // binding: API-key validation, publishable-key validation, idempotent
-// usage-event ingestion, and project-environment lookup. There is no generic SQL or query
-// operation, and the Gateway never receives the Console database.
+// usage-event ingestion, project-environment lookup, and active tenant-root
+// lineage lookup. There is no generic SQL or query operation, and the Gateway
+// never receives the Console database.
 
 export const WALLET_CONSOLE_OPS_BASE_PATH_V1 = '/internal/wallet-console/v1';
 export const WALLET_CONSOLE_SERVICE_ORIGIN_V1 = 'https://wallet-console.internal';
@@ -12,6 +16,7 @@ export const WALLET_CONSOLE_OP_PATHS_V1 = {
   publishableKeyAuth: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/publishable-key-auth`,
   usageEvents: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/usage-events`,
   projectEnvironments: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/project-environments`,
+  tenantRootActiveLineage: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/tenant-root/active-lineage`,
 } as const;
 
 export interface WalletConsoleSecretKeyAuthRequestV1 {
@@ -111,4 +116,16 @@ export interface WalletConsoleProjectEnvironmentsResponseV1 {
   readonly code?: string;
   readonly message?: string;
 }
-import type { ApiCredentialScope } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+
+export type WalletConsoleTenantRootActiveLineageRequestV1 = TenantRootIdentityV1;
+
+export interface WalletConsoleTenantRootActiveLineageV1 {
+  readonly identityDigestB64u: string;
+  readonly custodyLineageB64u: string;
+}
+
+export interface WalletConsoleTenantRootActiveLineageResolverV1 {
+  resolveActiveLineage(
+    identity: WalletConsoleTenantRootActiveLineageRequestV1,
+  ): Promise<WalletConsoleTenantRootActiveLineageV1 | null>;
+}

@@ -29,3 +29,7 @@ zeroize = { version = "1.8", features = ["zeroize_derive"] }
 bs58 = "0.5"
 ed25519-dalek = { version = "2.1", default-features = false, features = ["rand_core"] }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
+rand_chacha = "0.3"
+rand_core = "0.6.4"
+router-ab-ecdsa-derivation = { path = "../router-ab-ecdsa-derivation" }
+threshold-prf = { path = "../threshold-prf" }

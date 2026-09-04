@@ -281,6 +281,10 @@ test.describe('ECDSA operation step-up challenge binding', () => {
     const result = await port.explicitExport({
       request,
       requestDigestB64u: b64u(42, 32),
+      tenantRoot: {
+        identityDigestB64u: b64u(44, 32),
+        custodyLineageB64u: b64u(45, 32),
+      },
       authority: {
         subjectId: request.client_id,
         sessionId: request.lifecycle.session_id,
@@ -308,6 +312,10 @@ test.describe('ECDSA operation step-up challenge binding', () => {
           material_activation_id: normalSigningScope.material_activation.activation_id,
           signing_worker_id: normalSigningScope.signing_worker.server_id,
         },
+      },
+      tenant_root: {
+        identity_digest_b64u: b64u(44, 32),
+        custody_lineage_b64u: b64u(45, 32),
       },
     });
   });

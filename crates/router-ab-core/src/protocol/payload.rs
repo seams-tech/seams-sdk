@@ -1,14 +1,16 @@
 use crate::derivation::{
-    transcript_digest_v1, AccountScope, DerivationContext, MpcPrfDleqProofWireV1,
-    MpcPrfOutputRequestV1, MpcPrfPartialBindingV1, MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1,
-    MpcPrfShareCommitmentWireV1, MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1,
-    MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, RequestKind, Role,
-    RootShareEpoch, RouterAbDerivationError, SignerInputPlaintextV1, SignerSetBinding,
-    TranscriptBinding,
+    transcript_digest_v1, verify_mpc_prf_stable_partial_with_threshold_backend_v2, AccountScope,
+    DerivationContext, MpcPrfDleqProofWireV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
+    MpcPrfPartialProofBundleV1, MpcPrfPartialWireV1, MpcPrfShareCommitmentWireV1,
+    MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1, MpcPrfStablePartialProofBundleV2,
+    MpcPrfStablePurposeBindingPlanV2, MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind,
+    PublicDigest32, RequestKind, Role, RootShareEpoch, RouterAbDerivationError,
+    SignerInputPlaintextV1, SignerSetBinding, TenantRootProtocolDigestV1, TranscriptBinding,
 };
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use threshold_prf::PrfPurpose;
 
 use crate::protocol::envelope::{
     role_encrypted_envelope_digest_v1, EncryptedPayloadV1, RoleEncryptedEnvelopeV1,
@@ -32,6 +34,10 @@ const ECDSA_THRESHOLD_PRF_PROOF_BATCH_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/ecdsa-threshold-prf-proof-batch-payload/v1";
 const RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-payload/v1";
+const MPC_PRF_STABLE_PROOF_BUNDLE_WIRE_VERSION_V2: &[u8] =
+    b"router-ab-protocol/mpc-prf-stable-proof-bundle-wire/v2";
+const MPC_PRF_STABLE_RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V2: &[u8] =
+    b"router-ab-protocol/mpc-prf-stable-recipient-proof-bundle-payload/v2";
 
 /// Public transcript metadata carried to each signer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -807,6 +813,370 @@ impl RecipientProofBundlePayloadV1 {
     }
 }
 
+/// Canonical public wire for one stable tenant-root threshold-PRF proof bundle.
+///
+/// The stable PRF bytes are represented by their digest here. The complete
+/// plan remains a server-resolved value and is supplied again when a recipient
+/// verifies the bundle.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MpcPrfStableProofBundleWireV2 {
+    /// Digest of the exact stable PRF context bytes.
+    pub stable_context_digest: TenantRootProtocolDigestV1,
+    /// Digest of the epoch-bound custody binding used by the proof.
+    pub custody_binding_digest: TenantRootProtocolDigestV1,
+    /// Fixed ECDSA threshold-PRF purpose.
+    pub purpose: PrfPurpose,
+    /// Deriver role that produced the proof bundle.
+    pub signer_role: Role,
+    /// Canonical threshold-PRF partial wire.
+    pub partial_wire: MpcPrfPartialWireV1,
+    /// Public commitment to the producing role's root share.
+    pub commitment_wire: MpcPrfShareCommitmentWireV1,
+    /// DLEQ proof bound to the custody digest.
+    pub proof_wire: MpcPrfDleqProofWireV1,
+}
+
+impl core::fmt::Debug for MpcPrfStableProofBundleWireV2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MpcPrfStableProofBundleWireV2")
+            .field("stable_context_digest", &self.stable_context_digest)
+            .field("custody_binding_digest", &self.custody_binding_digest)
+            .field("purpose", &self.purpose)
+            .field("signer_role", &self.signer_role)
+            .field("partial_wire", &"[redacted]")
+            .field("commitment_wire", &self.commitment_wire)
+            .field("proof_wire", &"[redacted]")
+            .finish()
+    }
+}
+
+impl MpcPrfStableProofBundleWireV2 {
+    /// Creates a validated canonical proof-bundle wire.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        stable_context_digest: TenantRootProtocolDigestV1,
+        custody_binding_digest: TenantRootProtocolDigestV1,
+        purpose: PrfPurpose,
+        signer_role: Role,
+        partial_wire: MpcPrfPartialWireV1,
+        commitment_wire: MpcPrfShareCommitmentWireV1,
+        proof_wire: MpcPrfDleqProofWireV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let wire = Self {
+            stable_context_digest,
+            custody_binding_digest,
+            purpose,
+            signer_role,
+            partial_wire,
+            commitment_wire,
+            proof_wire,
+        };
+        wire.validate()?;
+        Ok(wire)
+    }
+
+    /// Builds a canonical proof-bundle wire from one V2 backend output.
+    pub fn from_stable_partial(
+        bundle: &MpcPrfStablePartialProofBundleV2,
+    ) -> RouterAbProtocolResult<Self> {
+        Self::new(
+            bundle.purpose_plan.stable_context_digest(),
+            bundle.purpose_plan.custody_binding_digest(),
+            bundle.purpose_plan.purpose().clone(),
+            bundle.signer_role,
+            bundle.partial_wire.clone(),
+            bundle.commitment_wire.clone(),
+            bundle.proof_wire.clone(),
+        )
+    }
+
+    /// Validates the fixed purpose, role, and proof-wire shape.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        validate_stable_prf_purpose(&self.purpose)?;
+        require_signer_role(self.signer_role)?;
+        validate_stable_proof_wire_shape(
+            self.signer_role,
+            &self.partial_wire,
+            &self.commitment_wire,
+            &self.proof_wire,
+        )
+    }
+
+    /// Returns the canonical proof-bundle bytes.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        encode_mpc_prf_stable_proof_bundle_wire_v2(self)
+    }
+
+    /// Returns the SHA-256 digest of canonical proof-bundle bytes.
+    pub fn digest(&self) -> PublicDigest32 {
+        mpc_prf_stable_proof_bundle_wire_digest_v2(self)
+    }
+
+    /// Converts this public wire into a V2 backend bundle under one expected plan.
+    pub fn into_stable_partial_for_plan(
+        self,
+        expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+    ) -> RouterAbProtocolResult<MpcPrfStablePartialProofBundleV2> {
+        self.validate()?;
+        validate_stable_plan_metadata(
+            expected_plan,
+            self.stable_context_digest,
+            self.custody_binding_digest,
+            &self.purpose,
+        )?;
+        Ok(MpcPrfStablePartialProofBundleV2 {
+            purpose_plan: expected_plan.clone(),
+            signer_role: self.signer_role,
+            partial_wire: self.partial_wire,
+            commitment_wire: self.commitment_wire,
+            proof_wire: self.proof_wire,
+        })
+    }
+}
+
+/// Recipient-scoped payload for one stable tenant-root threshold-PRF proof.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MpcPrfStableRecipientProofBundlePayloadV2 {
+    /// Producing signer identity.
+    pub signer: SignerIdentityV1,
+    /// Intended client or server recipient role.
+    pub recipient_role: Role,
+    /// Canonical recipient identity.
+    pub recipient_identity: String,
+    /// Stable tenant-root proof bundle delivered to the recipient.
+    pub proof_bundle: MpcPrfStableProofBundleWireV2,
+}
+
+impl core::fmt::Debug for MpcPrfStableRecipientProofBundlePayloadV2 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MpcPrfStableRecipientProofBundlePayloadV2")
+            .field("signer", &self.signer)
+            .field("recipient_role", &self.recipient_role)
+            .field("recipient_identity", &self.recipient_identity)
+            .field("proof_bundle", &self.proof_bundle)
+            .finish()
+    }
+}
+
+impl MpcPrfStableRecipientProofBundlePayloadV2 {
+    /// Creates a validated recipient-scoped stable proof payload.
+    pub fn new(
+        signer: SignerIdentityV1,
+        recipient_role: Role,
+        recipient_identity: impl Into<String>,
+        proof_bundle: MpcPrfStableProofBundleWireV2,
+    ) -> RouterAbProtocolResult<Self> {
+        let payload = Self {
+            signer,
+            recipient_role,
+            recipient_identity: recipient_identity.into(),
+            proof_bundle,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    /// Builds a recipient payload from one V2 backend output.
+    pub fn from_stable_partial(
+        signer: SignerIdentityV1,
+        recipient_role: Role,
+        recipient_identity: impl Into<String>,
+        bundle: &MpcPrfStablePartialProofBundleV2,
+    ) -> RouterAbProtocolResult<Self> {
+        Self::new(
+            signer,
+            recipient_role,
+            recipient_identity,
+            MpcPrfStableProofBundleWireV2::from_stable_partial(bundle)?,
+        )
+    }
+
+    /// Validates recipient policy and sender binding.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.signer.validate()?;
+        require_non_empty("recipient_identity", &self.recipient_identity)?;
+        self.proof_bundle.validate()?;
+        if self.proof_bundle.signer_role != self.signer.role {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "stable tenant-root recipient proof bundle role does not match signer",
+            ));
+        }
+        let expected_role = stable_prf_recipient_role(&self.proof_bundle.purpose)?;
+        if expected_role != self.recipient_role {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "stable tenant-root recipient role does not match threshold-PRF purpose",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the V1 envelope binding corresponding to this recipient role.
+    pub fn opened_share_kind(&self) -> RouterAbProtocolResult<OpenedShareKind> {
+        match self.recipient_role {
+            Role::Client => Ok(OpenedShareKind::XClientBase),
+            Role::Server => Ok(OpenedShareKind::XServerBase),
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "stable tenant-root recipient payload requires a client or server role",
+            )),
+        }
+    }
+
+    /// Returns the canonical recipient payload bytes.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        encode_mpc_prf_stable_recipient_proof_bundle_payload_v2(self)
+    }
+
+    /// Returns the SHA-256 digest of canonical recipient payload bytes.
+    pub fn digest(&self) -> PublicDigest32 {
+        mpc_prf_stable_recipient_proof_bundle_payload_digest_v2(self)
+    }
+
+    /// Converts the recipient proof bundle under one expected stable plan.
+    pub fn stable_partial_for_plan(
+        &self,
+        expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+    ) -> RouterAbProtocolResult<MpcPrfStablePartialProofBundleV2> {
+        self.validate()?;
+        self.proof_bundle
+            .clone()
+            .into_stable_partial_for_plan(expected_plan)
+    }
+}
+
+/// Encodes one stable tenant-root threshold-PRF proof-bundle wire.
+pub fn encode_mpc_prf_stable_proof_bundle_wire_v2(wire: &MpcPrfStableProofBundleWireV2) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len32(&mut out, MPC_PRF_STABLE_PROOF_BUNDLE_WIRE_VERSION_V2);
+    push_tenant_root_protocol_digest(&mut out, wire.stable_context_digest);
+    push_tenant_root_protocol_digest(&mut out, wire.custody_binding_digest);
+    push_len32(&mut out, wire.purpose.as_bytes());
+    push_role(&mut out, wire.signer_role);
+    push_len32(&mut out, wire.partial_wire.as_bytes());
+    push_len32(&mut out, wire.commitment_wire.as_bytes());
+    push_len32(&mut out, wire.proof_wire.as_bytes());
+    out
+}
+
+/// Decodes one stable tenant-root threshold-PRF proof-bundle wire.
+pub fn decode_mpc_prf_stable_proof_bundle_wire_v2(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<MpcPrfStableProofBundleWireV2> {
+    let mut decoder = PayloadDecoder::new(bytes);
+    decoder.expect_bytes(
+        MPC_PRF_STABLE_PROOF_BUNDLE_WIRE_VERSION_V2,
+        "stable tenant-root proof-bundle wire version",
+    )?;
+    let stable_context_digest = decoder.read_tenant_root_protocol_digest(
+        "stable tenant-root proof-bundle stable-context digest",
+    )?;
+    let custody_binding_digest = decoder.read_tenant_root_protocol_digest(
+        "stable tenant-root proof-bundle custody-binding digest",
+    )?;
+    let purpose =
+        parse_stable_prf_purpose(&decoder.read_string("stable tenant-root proof-bundle purpose")?)?;
+    let signer_role = decoder.read_role()?;
+    let partial_wire = MpcPrfPartialWireV1::new(
+        decoder
+            .read_bytes("stable tenant-root proof-bundle partial wire")?
+            .to_vec(),
+    )
+    .map_err(map_derivation_to_protocol_error)?;
+    let commitment_wire = MpcPrfShareCommitmentWireV1::new(
+        decoder
+            .read_bytes("stable tenant-root proof-bundle commitment wire")?
+            .to_vec(),
+    )
+    .map_err(map_derivation_to_protocol_error)?;
+    let proof_wire = MpcPrfDleqProofWireV1::new(
+        decoder
+            .read_bytes("stable tenant-root proof-bundle proof wire")?
+            .to_vec(),
+    )
+    .map_err(map_derivation_to_protocol_error)?;
+    decoder.finish()?;
+    MpcPrfStableProofBundleWireV2::new(
+        stable_context_digest,
+        custody_binding_digest,
+        purpose,
+        signer_role,
+        partial_wire,
+        commitment_wire,
+        proof_wire,
+    )
+}
+
+/// Computes the public digest of one stable proof-bundle wire.
+pub fn mpc_prf_stable_proof_bundle_wire_digest_v2(
+    wire: &MpcPrfStableProofBundleWireV2,
+) -> PublicDigest32 {
+    digest_bytes(&encode_mpc_prf_stable_proof_bundle_wire_v2(wire))
+}
+
+/// Encodes a stable tenant-root recipient proof-bundle payload.
+pub fn encode_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+    payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len32(
+        &mut out,
+        MPC_PRF_STABLE_RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V2,
+    );
+    push_signer_identity(&mut out, &payload.signer);
+    push_role(&mut out, payload.recipient_role);
+    push_string(&mut out, &payload.recipient_identity);
+    push_len32(
+        &mut out,
+        &encode_mpc_prf_stable_proof_bundle_wire_v2(&payload.proof_bundle),
+    );
+    out
+}
+
+/// Decodes a stable tenant-root recipient proof-bundle payload.
+pub fn decode_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<MpcPrfStableRecipientProofBundlePayloadV2> {
+    let mut decoder = PayloadDecoder::new(bytes);
+    decoder.expect_bytes(
+        MPC_PRF_STABLE_RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V2,
+        "stable tenant-root recipient payload version",
+    )?;
+    let signer = decoder.read_signer_identity()?;
+    let recipient_role = decoder.read_role()?;
+    let recipient_identity = decoder.read_string("stable tenant-root recipient identity")?;
+    let proof_bundle = decode_mpc_prf_stable_proof_bundle_wire_v2(
+        decoder.read_bytes("stable tenant-root recipient proof bundle")?,
+    )?;
+    decoder.finish()?;
+    MpcPrfStableRecipientProofBundlePayloadV2::new(
+        signer,
+        recipient_role,
+        recipient_identity,
+        proof_bundle,
+    )
+}
+
+/// Computes the public digest of a stable tenant-root recipient payload.
+pub fn mpc_prf_stable_recipient_proof_bundle_payload_digest_v2(
+    payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+) -> PublicDigest32 {
+    digest_bytes(&encode_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+        payload,
+    ))
+}
+
+/// Verifies one stable tenant-root recipient payload against its expected plan.
+pub fn verify_mpc_prf_stable_recipient_proof_bundle_payload_v2(
+    payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+    expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+) -> RouterAbProtocolResult<()> {
+    let bundle = payload.stable_partial_for_plan(expected_plan)?;
+    verify_mpc_prf_stable_partial_with_threshold_backend_v2(expected_plan, &bundle)
+        .map_err(map_derivation_to_protocol_error)
+}
+
 /// Signature scheme for direct A/B peer messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1476,6 +1846,113 @@ fn validate_router_to_signer(
     Ok(())
 }
 
+fn validate_stable_prf_purpose(purpose: &PrfPurpose) -> RouterAbProtocolResult<()> {
+    match purpose {
+        PrfPurpose::RouterAbEcdsaDerivationYServer
+        | PrfPurpose::RouterAbXClientBaseV1
+        | PrfPurpose::RouterAbXServerBaseV1 => Ok(()),
+        PrfPurpose::Ed25519DeriverAContributionRoot
+        | PrfPurpose::Ed25519DeriverBContributionRoot => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle purpose must be an ECDSA purpose",
+        )),
+    }
+}
+
+fn stable_prf_recipient_role(purpose: &PrfPurpose) -> RouterAbProtocolResult<Role> {
+    match purpose {
+        PrfPurpose::RouterAbEcdsaDerivationYServer | PrfPurpose::RouterAbXServerBaseV1 => {
+            Ok(Role::Server)
+        }
+        PrfPurpose::RouterAbXClientBaseV1 => Ok(Role::Client),
+        PrfPurpose::Ed25519DeriverAContributionRoot
+        | PrfPurpose::Ed25519DeriverBContributionRoot => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root recipient purpose must be an ECDSA purpose",
+        )),
+    }
+}
+
+fn validate_stable_proof_wire_shape(
+    signer_role: Role,
+    partial_wire: &MpcPrfPartialWireV1,
+    commitment_wire: &MpcPrfShareCommitmentWireV1,
+    proof_wire: &MpcPrfDleqProofWireV1,
+) -> RouterAbProtocolResult<()> {
+    let partial_bytes = partial_wire.as_bytes();
+    if partial_bytes.len() != crate::derivation::MPC_PRF_PARTIAL_WIRE_V1_LEN {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle partial wire has invalid length",
+        ));
+    }
+    let commitment_bytes = commitment_wire.as_bytes();
+    if commitment_bytes.len() != crate::derivation::MPC_PRF_COMMITMENT_WIRE_V1_LEN {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle commitment wire has invalid length",
+        ));
+    }
+    if proof_wire.as_bytes().len() != crate::derivation::MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle proof wire has invalid length",
+        ));
+    }
+    let partial_share_id = u16::from_be_bytes([partial_bytes[0], partial_bytes[1]]);
+    let commitment_share_id = u16::from_be_bytes([commitment_bytes[0], commitment_bytes[1]]);
+    if partial_share_id != commitment_share_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle partial and commitment share ids differ",
+        ));
+    }
+    let expected_share_id = match signer_role {
+        Role::SignerA => 1,
+        Role::SignerB => 2,
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "stable tenant-root proof bundle requires a signer role",
+            ));
+        }
+    };
+    if partial_share_id != expected_share_id {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidSignerIdentity,
+            "stable tenant-root proof bundle share id does not match signer role",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_stable_plan_metadata(
+    expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+    stable_context_digest: TenantRootProtocolDigestV1,
+    custody_binding_digest: TenantRootProtocolDigestV1,
+    purpose: &PrfPurpose,
+) -> RouterAbProtocolResult<()> {
+    if expected_plan.stable_context_digest() != stable_context_digest {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle stable-context digest does not match expected plan",
+        ));
+    }
+    if expected_plan.custody_binding_digest() != custody_binding_digest {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle custody-binding digest does not match expected plan",
+        ));
+    }
+    if expected_plan.purpose() != purpose {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "stable tenant-root proof bundle purpose does not match expected plan",
+        ));
+    }
+    Ok(())
+}
+
 fn require_plaintext_output_policy(
     output_requests: &[MpcPrfOutputRequestV1],
 ) -> RouterAbProtocolResult<()> {
@@ -1599,6 +2076,10 @@ fn push_role(out: &mut Vec<u8>, role: Role) {
 }
 
 fn push_public_digest(out: &mut Vec<u8>, digest: PublicDigest32) {
+    push_len32(out, digest.as_bytes());
+}
+
+fn push_tenant_root_protocol_digest(out: &mut Vec<u8>, digest: TenantRootProtocolDigestV1) {
     push_len32(out, digest.as_bytes());
 }
 
@@ -1774,6 +2255,20 @@ impl<'a> PayloadDecoder<'a> {
         Ok(PublicDigest32::new(digest))
     }
 
+    fn read_tenant_root_protocol_digest(
+        &mut self,
+        field: &'static str,
+    ) -> RouterAbProtocolResult<TenantRootProtocolDigestV1> {
+        let bytes = self.read_bytes(field)?;
+        let digest: [u8; 32] = bytes.try_into().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} must be 32 bytes"),
+            )
+        })?;
+        TenantRootProtocolDigestV1::from_bytes(digest).map_err(map_derivation_to_protocol_error)
+    }
+
     fn read_mpc_prf_partial_proof_bundle(
         &mut self,
     ) -> RouterAbProtocolResult<MpcPrfPartialProofBundleV1> {
@@ -1919,6 +2414,18 @@ fn parse_opened_share_kind(value: &str) -> RouterAbProtocolResult<OpenedShareKin
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown opened share kind",
+        )),
+    }
+}
+
+fn parse_stable_prf_purpose(value: &str) -> RouterAbProtocolResult<PrfPurpose> {
+    match value {
+        "router-ab-ecdsa-derivation/y-server/v1" => Ok(PrfPurpose::RouterAbEcdsaDerivationYServer),
+        "router-ab/x_client_base/v1" => Ok(PrfPurpose::RouterAbXClientBaseV1),
+        "router-ab/x_server_base/v1" => Ok(PrfPurpose::RouterAbXServerBaseV1),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "unknown stable tenant-root threshold-PRF purpose",
         )),
     }
 }

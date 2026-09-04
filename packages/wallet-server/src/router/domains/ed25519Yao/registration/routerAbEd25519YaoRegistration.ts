@@ -25,6 +25,7 @@ import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
 } from '../../../framework/routeExtensions';
+import type { RouterAbEd25519YaoRegistrationExecuteAdmissionContextV1 } from '../routerAbEd25519YaoGatewayEnvelope';
 
 type RouterAbEd25519YaoRegistrationAdmissionReceiptV1 =
   RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
@@ -76,6 +77,7 @@ export interface RouterAbEd25519YaoRegistrationBackend {
     | RouterAbEd25519YaoRegistrationBackendResult;
   execute(
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+    admissionRequest: RouterAbEd25519YaoRegistrationExecuteAdmissionContextV1,
     traceContext?: RouterAbTraceContextV1,
   ):
     | Promise<RouterAbEd25519YaoRegistrationBackendResult>
@@ -140,6 +142,7 @@ export type RouterAbEd25519YaoRegistrationExecuteClaimV1 = {
   readonly lifecycleId: string;
   readonly sessionId: string;
   readonly executeFingerprint: string;
+  readonly admissionRequest: RouterAbEd25519YaoRegistrationExecuteAdmissionContextV1;
 };
 
 export type RouterAbEd25519YaoRegistrationExecutePreparationV1 =
@@ -693,7 +696,11 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
         try {
           outcome = {
             kind: 'backend_response',
-            result: await this.backend.execute(request, traceContext),
+            result: await this.backend.execute(
+              request,
+              preparation.claim.admissionRequest,
+              traceContext,
+            ),
           };
         } catch (error: unknown) {
           outcome = {
@@ -787,6 +794,7 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
             lifecycleId: request.binding.lifecycle.lifecycle_id,
             sessionId: key,
             executeFingerprint,
+            admissionRequest: state.admissionRequest,
           },
         };
       }

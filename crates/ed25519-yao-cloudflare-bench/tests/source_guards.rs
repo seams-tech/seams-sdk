@@ -118,12 +118,9 @@ fn deriver_a_has_one_protocol_driver_with_compile_time_transport_adapters() {
             "missing protocol-neutral Deriver A boundary: {required}"
         );
     }
-    assert_eq!(
-        source
-            .matches("let mut role = Activation128KiBDeriverA::new(session)?;")
-            .count(),
-        1,
-        "Deriver A role progression must have exactly one runtime driver"
+    assert!(
+        source.contains("mut role: BenchmarkDeriverA,"),
+        "Deriver A role progression must enter the one runtime driver as typed state"
     );
 }
 
@@ -317,7 +314,7 @@ fn cross_account_transport_is_one_fixed_websocket_experiment() {
         "WebSocket::connect_with_protocols(",
         "set_binary_type(worker::web_sys::BinaryType::Arraybuffer)",
         "!negotiated_protocol.is_empty() && negotiated_protocol != protocol",
-        "websocket_protocol(&deployment_id, session)",
+        "websocket_protocol(&deployment_id, session, profile, ceremony)",
         "parse_websocket_protocol(",
         "run_deriver_a_websocket(",
         "run_deriver_b_websocket(",

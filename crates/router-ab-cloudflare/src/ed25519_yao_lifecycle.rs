@@ -1,4 +1,4 @@
-use core::{fmt, future::Future};
+use core::{fmt, future::Future, pin::Pin};
 use std::time::Duration;
 
 #[path = "ed25519_yao_role_d1.rs"]
@@ -6,18 +6,23 @@ mod role_d1;
 
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures::future::{select, Either};
+use hpke_ng::Kem;
 use router_ab_core::{
-    ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCircuitFamilyV1, Ed25519YaoDeriverRoleV1,
-    Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1, Ed25519YaoInputKindV1,
-    Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1, Ed25519YaoRoleReadinessReceiptV1,
-    Ed25519YaoRoleSignatureSchemeV1, Ed25519YaoRoleStartAcceptanceV1, Ed25519YaoSessionIdV1,
-    LifecycleScopeV1, PublicDigest32, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult,
+    ed25519_yao_encrypted_input_digest_v1, Ed25519YaoCircuitFamilyV1,
+    Ed25519YaoDeriverAPrefaceInFlightV2, Ed25519YaoDeriverAToBTargetProofPayloadV2,
+    Ed25519YaoDeriverBPrefaceInFlightV2, Ed25519YaoDeriverBToATargetProofPayloadV2,
+    Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedInputV1, Ed25519YaoExecutionIdV1,
+    Ed25519YaoInputKindV1, Ed25519YaoInputPairBindingV1, Ed25519YaoOperationV1,
+    Ed25519YaoOuterBindingV2, Ed25519YaoRoleReadinessReceiptV1, Ed25519YaoRoleSignatureSchemeV1,
+    Ed25519YaoRoleStartAcceptanceV1, Ed25519YaoSessionIdV1, PublicDigest32, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCustodyBindingV1,
+    TwoPartyDeriverRole, VerifiedTenantRootOnlineRoleShareV1,
 };
 use router_ab_ed25519_yao::{
-    build_product_activation_deriver_a_v1, build_product_activation_deriver_b_v1,
-    build_product_export_deriver_a_v1, build_product_export_deriver_b_v1,
-    build_product_lane_deriver_a_v1, build_product_lane_deriver_b_v1,
+    build_product_activation_deriver_a_with_server_v1,
+    build_product_activation_deriver_b_with_server_v1,
+    build_product_export_deriver_a_with_server_v1, build_product_export_deriver_b_with_server_v1,
+    build_product_lane_deriver_a_with_server_v1, build_product_lane_deriver_b_with_server_v1,
     duplex::{
         run_activation_deriver_a, run_activation_deriver_b_open, run_export_deriver_a,
         run_export_deriver_b_open, run_lane_materialization_deriver_a,
@@ -30,24 +35,41 @@ use router_ab_ed25519_yao::{
     seal_ed25519_yao_activation_deriver_b_execution_v1,
     seal_ed25519_yao_export_deriver_a_execution_v1, seal_ed25519_yao_export_deriver_b_execution_v1,
     seal_ed25519_yao_lane_deriver_a_execution_v1, seal_ed25519_yao_lane_deriver_b_execution_v1,
-    AdapterError, Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
+    stable_key_derivation_context_v1, AdapterError, Ed25519YaoRecipientPrivateKeyV1,
+    Ed25519YaoRoleExecutionV1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use signer_core::ed25519_yao_derivation::{
+    derive_ed25519_yao_deriver_a_server_contribution_v1,
+    derive_ed25519_yao_deriver_b_server_contribution_v1, Ed25519YaoDeriverADerivationRootV1,
+    Ed25519YaoDeriverAServerContributionV1, Ed25519YaoDeriverBDerivationRootV1,
+    Ed25519YaoDeriverBServerContributionV1, Ed25519YaoStableKeyDerivationContextV1,
+};
+use threshold_prf::{
+    prepare_ed25519_deriver_a_target_v1, prepare_ed25519_deriver_b_target_v1,
+    SigningRootShareCommitment,
+};
 use worker::{Context, Delay, Env, Request, Response, WebSocketPair};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
-    load_cloudflare_root_share_wire_secret_v1, parse_cloudflare_trace_id_from_request_v1,
-    CloudflareDeriverAWorkerRuntimeV1, CloudflareDeriverBWorkerRuntimeV1,
-    CloudflareEd25519YaoCircuitV1, CloudflareEd25519YaoPairExecuteRequestV1,
-    CloudflareEd25519YaoPairExecuteResponseV1, CloudflareEd25519YaoPairLookupRequestV1,
-    CloudflareEd25519YaoPairPrepareRequestV1, CloudflareEd25519YaoPairStartRequestV1,
-    CloudflareEd25519YaoPairStatusResponseV1, CloudflareEd25519YaoWebSocketBindingV1,
-    CloudflareEd25519YaoWebSocketTransportV1, CloudflareHpkeGetrandomRngV1,
-    CloudflareSignerPeerVerifyingKeySetV1, CloudflareTraceIdV1, CloudflareWorkerRoleV1,
-    EXECUTION_ID_HEADER, START_ACCEPTANCE_HEADER,
+    load_cloudflare_active_tenant_root_role_share_v1,
+    parse_cloudflare_signer_envelope_hpke_public_key_set_v1,
+    parse_cloudflare_trace_id_from_request_v1, CloudflareDeriverAWorkerRuntimeV1,
+    CloudflareDeriverBWorkerRuntimeV1, CloudflareEd25519YaoCircuitV1,
+    CloudflareEd25519YaoPairExecuteRequestV1, CloudflareEd25519YaoPairExecuteResponseV1,
+    CloudflareEd25519YaoPairLookupRequestV1, CloudflareEd25519YaoPairPrepareRequestV1,
+    CloudflareEd25519YaoPairStartRequestV1, CloudflareEd25519YaoPairStatusResponseV1,
+    CloudflareEd25519YaoWebSocketBindingV1, CloudflareEd25519YaoWebSocketTransportV1,
+    CloudflareHpkeGetrandomRngV1, CloudflareSignerPeerVerifyingKeySetV1, CloudflareTraceIdV1,
+    CloudflareWorkerEnvReaderV1, CloudflareWorkerRoleV1, EXECUTION_ID_HEADER,
+    START_ACCEPTANCE_HEADER,
+};
+
+use crate::hpke::{
+    parse_cloudflare_hpke_x25519_public_key_v1, CloudflareHpkeKemV1, CloudflareHpkeSuiteV1,
 };
 
 pub const CLOUDFLARE_DERIVER_B_ED25519_YAO_DUPLEX_PATH: &str =
@@ -75,6 +97,7 @@ const YAO_RUNNING_LIFETIME_MS: u64 = 20_000;
 const YAO_READINESS_RECEIPT_MAX_FUTURE_SKEW_MS: u64 = 1_000;
 const YAO_START_ACCEPTANCE_MAX_FUTURE_SKEW_MS: u64 = 1_000;
 const ROLE_SPAN_EVENT_V1: &str = "router_ab_yao_role_span_v1";
+const ED25519_YAO_TARGET_PROOF_HPKE_INFO_V2: &[u8] = b"seams/ed25519-yao/target-proof/hpke/v2";
 
 type RoleTraceContextV1 = Option<CloudflareTraceIdV1>;
 
@@ -215,6 +238,8 @@ enum PairYaoSessionRecordV1 {
         input_digest: [u8; 32],
         root_metadata_digest: [u8; 32],
         expires_at_ms: u64,
+        pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        tenant_root: Box<crate::CloudflareEd25519YaoTenantRootContextV2>,
         input: Box<Ed25519YaoEncryptedInputV1>,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
@@ -225,6 +250,8 @@ enum PairYaoSessionRecordV1 {
         root_metadata_digest: [u8; 32],
         execution_id: [u8; 32],
         started_at_ms: u64,
+        pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        tenant_root: Box<crate::CloudflareEd25519YaoTenantRootContextV2>,
         input: Box<Ed25519YaoEncryptedInputV1>,
         work: crate::CloudflareEd25519YaoPairWorkV1,
     },
@@ -459,6 +486,7 @@ impl CloudflareEd25519YaoPairPrepareRequestV1 {
         expected_kind: Ed25519YaoInputKindV1,
     ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
         self.pair_binding.validate()?;
+        self.tenant_root.validate_for_pair(&self.pair_binding)?;
         validate_pair_work_v1(&self.work, &self.pair_binding, &self.input)?;
         validate_deriver_input(&self.input, role, expected_kind)?;
         let input_digest = ed25519_yao_encrypted_input_digest_v1(&self.input)?.bytes;
@@ -488,6 +516,7 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
         let expected_kind = input_kind_for_circuit(self.pair_binding.binding().circuit_family());
         let (_, input_digest) = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: self.pair_binding.clone(),
+            tenant_root: self.tenant_root.clone(),
             work: self.work.clone(),
             input: self.input.clone(),
         }
@@ -580,6 +609,7 @@ impl CloudflareEd25519YaoPairLookupRequestV1 {
 enum DeriverAYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Ed25519YaoInputPairBindingV1,
+        tenant_root: crate::CloudflareEd25519YaoTenantRootContextV2,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     },
@@ -610,12 +640,14 @@ impl DeriverAYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: pair_binding.clone(),
+                    tenant_root: tenant_root.clone(),
                     work: work.clone(),
                     input: input.clone(),
                 }
@@ -698,6 +730,7 @@ enum DeriverAYaoSessionResponseV1 {
 enum DeriverBYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        tenant_root: Box<crate::CloudflareEd25519YaoTenantRootContextV2>,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Box<Ed25519YaoEncryptedInputV1>,
     },
@@ -749,12 +782,14 @@ impl DeriverBYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: *pair_binding.clone(),
+                    tenant_root: *tenant_root.clone(),
                     work: work.clone(),
                     input: *input.clone(),
                 }
@@ -818,6 +853,8 @@ enum DeriverBYaoSessionResponseV1 {
         work: crate::CloudflareEd25519YaoPairWorkV1,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
         root_metadata_digest: [u8; 32],
+        pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        tenant_root: Box<crate::CloudflareEd25519YaoTenantRootContextV2>,
     },
     PairCompleted {
         session: [u8; 32],
@@ -846,18 +883,6 @@ enum DeriverBYaoSessionResponseV1 {
 
 fn pair_digest_as_public(value: [u8; 32]) -> PublicDigest32 {
     PublicDigest32::new(value)
-}
-
-fn root_metadata_digest_v1(
-    metadata: &crate::CloudflareRootShareStartupMetadataV1,
-) -> RouterAbProtocolResult<[u8; 32]> {
-    metadata.validate()?;
-    let encoded = serde_json::to_vec(metadata)
-        .map_err(|_| invalid_lifecycle("root-share metadata encoding failed"))?;
-    let mut hasher = Sha256::new();
-    hasher.update(b"seams/router-ab/ed25519-yao/root-metadata/v1");
-    hasher.update(encoded);
-    Ok(hasher.finalize().into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1243,12 +1268,22 @@ impl DeriverAYaoSessionD1V1 {
 }
 
 impl DeriverAYaoSessionD1V1 {
-    async fn handle_prepare_pair(
+    fn handle_prepare_pair(
+        &self,
+        command: DeriverAYaoSessionCommandV1,
+    ) -> Pin<Box<dyn Future<Output = worker::Result<Response>> + '_>> {
+        // Keep the encrypted active-row decode and preparation state off the
+        // small Workers WASM stack.
+        Box::pin(self.handle_prepare_pair_body(command))
+    }
+
+    async fn handle_prepare_pair_body(
         &self,
         command: DeriverAYaoSessionCommandV1,
     ) -> worker::Result<Response> {
         let DeriverAYaoSessionCommandV1::PreparePair {
             pair_binding,
+            tenant_root,
             work,
             input,
         } = command
@@ -1257,6 +1292,7 @@ impl DeriverAYaoSessionD1V1 {
         };
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            tenant_root,
             work,
             input,
         };
@@ -1277,10 +1313,14 @@ impl DeriverAYaoSessionD1V1 {
                     expires_at_ms,
                     receipt,
                     work,
+                    pair_binding: stored_pair_binding,
+                    tenant_root,
                     ..
                 } if existing_pair == pair_digest
                     && existing_input == input_digest
                     && work == request.work
+                    && *stored_pair_binding == request.pair_binding
+                    && *tenant_root == request.tenant_root
                     && now_unix_ms < expires_at_ms =>
                 {
                     return Response::from_json(&*receipt);
@@ -1333,13 +1373,15 @@ impl DeriverAYaoSessionD1V1 {
         }
         let runtime = CloudflareDeriverAWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let root_metadata_digest = load_deriver_a_yao_root_metadata_digest(
+        let (_, role_share, _, root_metadata_digest) = load_ed25519_yao_tenant_root_role_share_v2(
             &self.env,
-            &runtime,
-            &request.pair_binding.binding().lifecycle,
+            CloudflareWorkerRoleV1::DeriverA,
+            &request.tenant_root,
+            &request.pair_binding,
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        drop(role_share);
         storage.bind_creation_scope(
             &request.pair_binding.binding().lifecycle.signer_set_id,
             request
@@ -1361,9 +1403,15 @@ impl DeriverAYaoSessionD1V1 {
                     input_digest: existing_input,
                     expires_at_ms,
                     receipt,
+                    pair_binding: stored_pair_binding,
+                    tenant_root,
+                    work,
                     ..
                 } if existing_pair == pair_digest
                     && existing_input == input_digest
+                    && *stored_pair_binding == request.pair_binding
+                    && *tenant_root == request.tenant_root
+                    && work == request.work
                     && prepared_at_ms < expires_at_ms =>
                 {
                     return Response::from_json(&*receipt);
@@ -1397,6 +1445,8 @@ impl DeriverAYaoSessionD1V1 {
             input_digest,
             root_metadata_digest,
             expires_at_ms,
+            pair_binding: Box::new(request.pair_binding),
+            tenant_root: Box::new(request.tenant_root),
             input: Box::new(request.input),
             work: request.work,
             receipt: Box::new(receipt.clone()),
@@ -1484,6 +1534,8 @@ impl DeriverAYaoSessionD1V1 {
             input_digest: stored_input,
             root_metadata_digest,
             expires_at_ms,
+            pair_binding: stored_pair_binding,
+            tenant_root,
             input,
             work,
             receipt: stored_receipt,
@@ -1493,7 +1545,10 @@ impl DeriverAYaoSessionD1V1 {
         else {
             return Response::error("Deriver A pair is not prepared", 409);
         };
-        if stored_pair != pair_digest || stored_input != input_digest {
+        if stored_pair != pair_digest
+            || stored_input != input_digest
+            || *stored_pair_binding != request.pair_binding
+        {
             return Response::error("Deriver A pair identity mismatch", 409);
         }
         if now_ms >= expires_at_ms {
@@ -1521,6 +1576,8 @@ impl DeriverAYaoSessionD1V1 {
             root_metadata_digest,
             execution_id: request.execution_id.into_bytes(),
             started_at_ms,
+            pair_binding: stored_pair_binding,
+            tenant_root,
             input,
             work,
         };
@@ -1674,9 +1731,13 @@ impl DeriverBYaoSessionD1V1 {
         match command {
             DeriverBYaoSessionCommandV1::PreparePair {
                 pair_binding,
+                tenant_root,
                 work,
                 input,
-            } => self.handle_prepare_pair(*pair_binding, work, *input).await,
+            } => {
+                self.handle_prepare_pair(*pair_binding, *tenant_root, work, *input)
+                    .await
+            }
             DeriverBYaoSessionCommandV1::BeginPair {
                 session,
                 pair_digest,
@@ -1704,11 +1765,13 @@ impl DeriverBYaoSessionD1V1 {
     async fn handle_prepare_pair(
         &self,
         pair_binding: Ed25519YaoInputPairBindingV1,
+        tenant_root: crate::CloudflareEd25519YaoTenantRootContextV2,
         work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     ) -> worker::Result<Response> {
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            tenant_root,
             work,
             input,
         };
@@ -1728,12 +1791,16 @@ impl DeriverBYaoSessionD1V1 {
                     input_digest: stored_input,
                     expires_at_ms,
                     root_metadata_digest,
+                    pair_binding: stored_pair_binding,
+                    tenant_root,
                     input,
                     work,
                     receipt,
                 } if stored_pair == pair_digest
                     && stored_input == input_digest
                     && work == request.work
+                    && *stored_pair_binding == request.pair_binding
+                    && *tenant_root == request.tenant_root
                     && now_unix_ms < expires_at_ms =>
                 {
                     return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
@@ -1782,13 +1849,15 @@ impl DeriverBYaoSessionD1V1 {
         }
         let runtime = CloudflareDeriverBWorkerRuntimeV1::from_worker_env(&self.env)
             .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
-        let root_metadata_digest = load_deriver_b_yao_root_metadata_digest(
+        let (_, role_share, _, root_metadata_digest) = load_ed25519_yao_tenant_root_role_share_v2(
             &self.env,
-            &runtime,
-            &request.pair_binding.binding().lifecycle,
+            CloudflareWorkerRoleV1::DeriverB,
+            &request.tenant_root,
+            &request.pair_binding,
         )
         .await
         .map_err(|error| worker::Error::RustError(error.message().to_owned()))?;
+        drop(role_share);
         storage.bind_creation_scope(
             &request.pair_binding.binding().lifecycle.signer_set_id,
             request
@@ -1810,12 +1879,16 @@ impl DeriverBYaoSessionD1V1 {
                     input_digest: stored_input,
                     expires_at_ms,
                     root_metadata_digest,
+                    pair_binding: stored_pair_binding,
+                    tenant_root,
                     input,
                     work,
                     receipt,
                 } if stored_pair == pair_digest
                     && stored_input == input_digest
                     && work == request.work
+                    && *stored_pair_binding == request.pair_binding
+                    && *tenant_root == request.tenant_root
                     && prepared_at_ms < expires_at_ms =>
                 {
                     return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
@@ -1856,6 +1929,8 @@ impl DeriverBYaoSessionD1V1 {
             input_digest,
             root_metadata_digest,
             expires_at_ms,
+            pair_binding: Box::new(request.pair_binding),
+            tenant_root: Box::new(request.tenant_root),
             input: Box::new(input.clone()),
             work: request.work.clone(),
             receipt: Box::new(receipt.clone()),
@@ -1941,6 +2016,8 @@ impl DeriverBYaoSessionD1V1 {
             input_digest,
             root_metadata_digest,
             expires_at_ms,
+            pair_binding,
+            tenant_root,
             input,
             work,
             receipt,
@@ -1973,12 +2050,15 @@ impl DeriverBYaoSessionD1V1 {
         let response_input = input.clone();
         let response_work = work.clone();
         let response_receipt = receipt.clone();
+        let response_tenant_root = tenant_root.clone();
         let running_record = PairYaoSessionRecordV1::Running {
             pair_digest,
             input_digest,
             root_metadata_digest,
             execution_id: execution_id.into_bytes(),
             started_at_ms,
+            pair_binding: pair_binding.clone(),
+            tenant_root,
             input,
             work,
         };
@@ -2038,6 +2118,8 @@ impl DeriverBYaoSessionD1V1 {
             work: response_work,
             receipt: response_receipt,
             root_metadata_digest,
+            pair_binding,
+            tenant_root: response_tenant_root,
         })
     }
 
@@ -2353,7 +2435,16 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_prepare_pair_v1(
     json_response(&receipt)
 }
 
-pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
+pub fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
+    request: Request,
+    env: &Env,
+) -> Pin<Box<dyn Future<Output = RouterAbProtocolResult<Response>> + '_>> {
+    // Keep activation-receipt validation and pair execution off the small
+    // Workers WASM stack.
+    Box::pin(handle_cloudflare_ed25519_yao_deriver_a_execute_pair_body_v1(request, env))
+}
+
+async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_body_v1(
     mut request: Request,
     env: &Env,
 ) -> RouterAbProtocolResult<Response> {
@@ -2376,6 +2467,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
     let pair_execution = DeriverAPairExecutionContextV1 {
         expected_root_metadata_digest: request.local_receipt.root_metadata_digest().bytes,
         pair_binding: &pair_binding,
+        tenant_root: &request.tenant_root,
         work: request.work,
         pair_digest,
         execution_id,
@@ -2475,6 +2567,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1(
 struct DeriverAPairExecutionContextV1<'a> {
     expected_root_metadata_digest: [u8; 32],
     pair_binding: &'a Ed25519YaoInputPairBindingV1,
+    tenant_root: &'a crate::CloudflareEd25519YaoTenantRootContextV2,
     work: crate::CloudflareEd25519YaoPairWorkV1,
     pair_digest: [u8; 32],
     execution_id: Ed25519YaoExecutionIdV1,
@@ -2520,39 +2613,75 @@ async fn execute_deriver_a_role(
         pair_execution.pair_digest,
     )
     .map_err(map_websocket_error)?;
+    let (custody_binding, role_share, stable_context, root_metadata_digest) =
+        load_ed25519_yao_tenant_root_role_share_v2(
+            env,
+            CloudflareWorkerRoleV1::DeriverA,
+            pair_execution.tenant_root,
+            pair_execution.pair_binding,
+        )
+        .await?;
+    validate_expected_root_metadata_digest(
+        pair_execution.expected_root_metadata_digest,
+        root_metadata_digest,
+    )?;
+    let preface = prepare_cloudflare_ed25519_yao_deriver_a_target_v2(
+        role_share,
+        &custody_binding,
+        pair_execution.tenant_root.outer_binding.clone(),
+        &stable_context,
+    )?;
+    let outbound = seal_deriver_a_target_proof_v2(
+        env,
+        &pair_execution.tenant_root.outer_binding,
+        preface.outbound_plaintext(),
+    )?;
+    let (socket, acceptance) = connect_deriver_b(
+        env,
+        websocket_binding,
+        trace_id,
+        pair_execution.local_receipt,
+        pair_execution.execution_id,
+    )
+    .await?;
+    confirm_deriver_a_pair_start(
+        env,
+        pair_execution.pair_binding.clone(),
+        pair_execution.execution_id,
+        acceptance,
+        pair_execution.local_receipt.clone(),
+        pair_execution.peer_receipt.clone(),
+        trace_id,
+    )
+    .await?;
+    let mut transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
+        .map_err(map_websocket_error)?;
+    let incoming = transport
+        .exchange_deriver_a_target_proof_preface_v2(&outbound)
+        .await
+        .map_err(map_websocket_error)?;
+    let incoming_plaintext = open_deriver_a_target_proof_v2(
+        env,
+        &runtime.envelope_decrypt_key().current.binding_name,
+        &incoming,
+    )?;
+    let server_contribution = complete_cloudflare_ed25519_yao_deriver_a_target_v2(
+        preface,
+        &incoming,
+        &incoming_plaintext,
+        &pair_execution.tenant_root.outer_binding,
+        &stable_context,
+    )?;
     let (execution, peer_sealed_completion) = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
                 open_ed25519_yao_activation_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
-                env,
-                runtime,
-                &role_request.binding.lifecycle,
-                trace_id,
-                websocket_binding,
-                &pair_execution,
-            )
-            .await?;
-            let (root, root_metadata_digest) = root_with_digest;
-            validate_expected_root_metadata_digest(
-                pair_execution.expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
-            confirm_deriver_a_pair_start(
-                env,
-                pair_execution.pair_binding.clone(),
-                pair_execution.execution_id,
-                acceptance,
-                pair_execution.local_receipt.clone(),
-                pair_execution.peer_receipt.clone(),
-                trace_id,
-            )
-            .await?;
-            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
-                .map_err(map_websocket_error)?;
             let recipients = role_request.recipients;
-            let (binding, role) =
-                build_product_activation_deriver_a_v1(root, role_request).map_err(map_adapter)?;
+            let (binding, role) = build_product_activation_deriver_a_with_server_v1(
+                role_request,
+                server_contribution,
+            )
+            .map_err(map_adapter)?;
             let protocol_started_at_ms = role_span_started_at_ms();
             let completion_result =
                 with_yao_ceremony_timeout(run_activation_deriver_a(role, transport)).await;
@@ -2581,35 +2710,10 @@ async fn execute_deriver_a_role(
         }
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_a_input_v1(&input, &private_key)?;
-            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
-                env,
-                runtime,
-                &role_request.binding.lifecycle,
-                trace_id,
-                websocket_binding,
-                &pair_execution,
-            )
-            .await?;
-            let (root, root_metadata_digest) = root_with_digest;
-            validate_expected_root_metadata_digest(
-                pair_execution.expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
-            confirm_deriver_a_pair_start(
-                env,
-                pair_execution.pair_binding.clone(),
-                pair_execution.execution_id,
-                acceptance,
-                pair_execution.local_receipt.clone(),
-                pair_execution.peer_receipt.clone(),
-                trace_id,
-            )
-            .await?;
-            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
-                .map_err(map_websocket_error)?;
             let recipient = role_request.recipients;
             let (binding, role) =
-                build_product_export_deriver_a_v1(root, role_request).map_err(map_adapter)?;
+                build_product_export_deriver_a_with_server_v1(role_request, server_contribution)
+                    .map_err(map_adapter)?;
             let protocol_started_at_ms = role_span_started_at_ms();
             let completion_result =
                 with_yao_ceremony_timeout(run_export_deriver_a(role, transport)).await;
@@ -2646,36 +2750,9 @@ async fn execute_deriver_a_role(
             };
             let role_request =
                 open_ed25519_yao_lane_deriver_a_input_v1(&input, expected_job, &private_key)?;
-            let lifecycle = role_request.binding.lifecycle.clone();
-            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
-                env,
-                runtime,
-                &lifecycle,
-                trace_id,
-                websocket_binding,
-                &pair_execution,
-            )
-            .await?;
-            let (root, root_metadata_digest) = root_with_digest;
-            validate_expected_root_metadata_digest(
-                pair_execution.expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
-            confirm_deriver_a_pair_start(
-                env,
-                pair_execution.pair_binding.clone(),
-                pair_execution.execution_id,
-                acceptance,
-                pair_execution.local_receipt.clone(),
-                pair_execution.peer_receipt.clone(),
-                trace_id,
-            )
-            .await?;
-            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
-                .map_err(map_websocket_error)?;
-            let (binding, job, role) = build_product_lane_deriver_a_v1(
-                root,
+            let (binding, job, role) = build_product_lane_deriver_a_with_server_v1(
                 role_request,
+                server_contribution,
                 &mut CloudflareHpkeGetrandomRngV1,
             )
             .map_err(map_adapter)?;
@@ -2725,35 +2802,6 @@ async fn execute_deriver_a_role(
     })
 }
 
-async fn load_deriver_a_pair_root_before_connect(
-    env: &Env,
-    runtime: &CloudflareDeriverAWorkerRuntimeV1,
-    lifecycle: &LifecycleScopeV1,
-    trace_id: RoleTraceContextV1,
-    websocket_binding: CloudflareEd25519YaoWebSocketBindingV1,
-    pair_execution: &DeriverAPairExecutionContextV1<'_>,
-) -> RouterAbProtocolResult<(
-    ([u8; 32], [u8; 32]),
-    worker::WebSocket,
-    Ed25519YaoRoleStartAcceptanceV1,
-)> {
-    let root_with_digest =
-        load_deriver_a_yao_root_with_metadata_digest(env, runtime, lifecycle, trace_id).await?;
-    validate_expected_root_metadata_digest(
-        pair_execution.expected_root_metadata_digest,
-        root_with_digest.1,
-    )?;
-    let (socket, acceptance) = connect_deriver_b(
-        env,
-        websocket_binding,
-        trace_id,
-        pair_execution.local_receipt,
-        pair_execution.execution_id,
-    )
-    .await?;
-    Ok((root_with_digest, socket, acceptance))
-}
-
 async fn connect_deriver_b(
     env: &Env,
     binding: CloudflareEd25519YaoWebSocketBindingV1,
@@ -2795,6 +2843,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1(
         env,
         DeriverBYaoSessionCommandV1::PreparePair {
             pair_binding: Box::new(request.pair_binding),
+            tenant_root: Box::new(request.tenant_root),
             work: request.work,
             input: Box::new(request.input),
         },
@@ -3057,6 +3106,8 @@ async fn handle_pair_bound_deriver_b_websocket(
         work,
         receipt,
         root_metadata_digest,
+        pair_binding,
+        tenant_root,
         ..
     } = running
     else {
@@ -3125,6 +3176,8 @@ async fn handle_pair_bound_deriver_b_websocket(
             trace_id,
             root_metadata_digest,
             pair_digest,
+            *pair_binding,
+            *tenant_root,
             work,
         )
         .await;
@@ -3170,6 +3223,8 @@ async fn execute_deriver_b_role(
     trace_id: RoleTraceContextV1,
     expected_root_metadata_digest: [u8; 32],
     pair_digest: [u8; 32],
+    pair_binding: Ed25519YaoInputPairBindingV1,
+    tenant_root: crate::CloudflareEd25519YaoTenantRootContextV2,
     work: crate::CloudflareEd25519YaoPairWorkV1,
 ) -> RouterAbProtocolResult<()> {
     let private_key_started_at_ms = role_span_started_at_ms();
@@ -3194,25 +3249,53 @@ async fn execute_deriver_b_role(
         transport_started_at_ms,
         &transport_result,
     );
-    let transport = transport_result?;
+    let mut transport = transport_result?;
+    let (custody_binding, role_share, stable_context, root_metadata_digest) =
+        load_ed25519_yao_tenant_root_role_share_v2(
+            env,
+            CloudflareWorkerRoleV1::DeriverB,
+            &tenant_root,
+            &pair_binding,
+        )
+        .await?;
+    validate_expected_root_metadata_digest(expected_root_metadata_digest, root_metadata_digest)?;
+    let preface = prepare_cloudflare_ed25519_yao_deriver_b_target_v2(
+        role_share,
+        &custody_binding,
+        tenant_root.outer_binding.clone(),
+        &stable_context,
+    )?;
+    let outbound = seal_deriver_b_target_proof_v2(
+        env,
+        &tenant_root.outer_binding,
+        preface.outbound_plaintext(),
+    )?;
+    let incoming = transport
+        .exchange_deriver_b_target_proof_preface_v2(&outbound)
+        .await
+        .map_err(map_websocket_error)?;
+    let incoming_plaintext = open_deriver_b_target_proof_v2(
+        env,
+        &runtime.envelope_decrypt_key().current.binding_name,
+        &incoming,
+    )?;
+    let server_contribution = complete_cloudflare_ed25519_yao_deriver_b_target_v2(
+        preface,
+        &incoming,
+        &incoming_plaintext,
+        &tenant_root.outer_binding,
+        &stable_context,
+    )?;
     let (execution, transport) = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
                 open_ed25519_yao_activation_deriver_b_input_v1(&input, &private_key)?;
-            let (root, root_metadata_digest) = load_deriver_b_yao_root_with_metadata_digest(
-                env,
-                runtime,
-                &role_request.binding.lifecycle,
-                trace_id,
-            )
-            .await?;
-            validate_expected_root_metadata_digest(
-                expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
             let recipients = role_request.recipients;
-            let (binding, role) =
-                build_product_activation_deriver_b_v1(root, role_request).map_err(map_adapter)?;
+            let (binding, role) = build_product_activation_deriver_b_with_server_v1(
+                role_request,
+                server_contribution,
+            )
+            .map_err(map_adapter)?;
             let protocol_started_at_ms = role_span_started_at_ms();
             let completion_result =
                 with_yao_ceremony_timeout(run_activation_deriver_b_open(role, transport)).await;
@@ -3241,20 +3324,10 @@ async fn execute_deriver_b_role(
         }
         Ed25519YaoInputKindV1::Export => {
             let role_request = open_ed25519_yao_export_deriver_b_input_v1(&input, &private_key)?;
-            let (root, root_metadata_digest) = load_deriver_b_yao_root_with_metadata_digest(
-                env,
-                runtime,
-                &role_request.binding.lifecycle,
-                trace_id,
-            )
-            .await?;
-            validate_expected_root_metadata_digest(
-                expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
             let recipient = role_request.recipients;
             let (binding, role) =
-                build_product_export_deriver_b_v1(root, role_request).map_err(map_adapter)?;
+                build_product_export_deriver_b_with_server_v1(role_request, server_contribution)
+                    .map_err(map_adapter)?;
             let protocol_started_at_ms = role_span_started_at_ms();
             let completion_result =
                 with_yao_ceremony_timeout(run_export_deriver_b_open(role, transport)).await;
@@ -3298,18 +3371,10 @@ async fn execute_deriver_b_role(
                 &role_request_result,
             );
             let role_request = role_request_result?;
-            let lifecycle = role_request.binding.lifecycle.clone();
-            let (root, root_metadata_digest) =
-                load_deriver_b_yao_root_with_metadata_digest(env, runtime, &lifecycle, trace_id)
-                    .await?;
-            validate_expected_root_metadata_digest(
-                expected_root_metadata_digest,
-                root_metadata_digest,
-            )?;
             let role_build_started_at_ms = role_span_started_at_ms();
-            let role_build_result = build_product_lane_deriver_b_v1(
-                root,
+            let role_build_result = build_product_lane_deriver_b_with_server_v1(
                 role_request,
+                server_contribution,
                 &mut CloudflareHpkeGetrandomRngV1,
             );
             match &role_build_result {
@@ -3477,6 +3542,7 @@ async fn execute_deriver_a_pair_prepare(
 ) -> RouterAbProtocolResult<Ed25519YaoRoleReadinessReceiptV1> {
     let command = DeriverAYaoSessionCommandV1::PreparePair {
         pair_binding: request.pair_binding,
+        tenant_root: request.tenant_root,
         work: request.work,
         input: request.input,
     };
@@ -3598,136 +3664,203 @@ async fn execute_deriver_a_pair_command(
     Ok(response)
 }
 
-async fn load_deriver_a_yao_root_metadata_digest(
-    env: &Env,
-    runtime: &CloudflareDeriverAWorkerRuntimeV1,
-    lifecycle: &LifecycleScopeV1,
-) -> RouterAbProtocolResult<[u8; 32]> {
-    lifecycle.validate()?;
-    let metadata = runtime.root_share_wire_secret().startup_metadata(
-        lifecycle.signer_set_id.clone(),
-        runtime.peer_signing_key().key_epoch.clone(),
-        lifecycle.root_share_epoch.clone(),
+/// Prepares the V2 role-target preface from the authenticated Deriver A share.
+///
+/// The returned state owns only A's local threshold-PRF partial. Its outbound
+/// plaintext is the fixed B-target proof exposed by
+/// [`Ed25519YaoDeriverAPrefaceInFlightV2::outbound_plaintext`].
+pub(crate) fn prepare_cloudflare_ed25519_yao_deriver_a_target_v2(
+    role_share: VerifiedTenantRootOnlineRoleShareV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+    outer_binding: Ed25519YaoOuterBindingV2,
+    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+) -> RouterAbProtocolResult<Ed25519YaoDeriverAPrefaceInFlightV2> {
+    validate_cloudflare_ed25519_yao_v2_binding(&outer_binding, custody_binding, stable_context)?;
+    let (role_binding, share_wire) = role_share.into_parts();
+    validate_cloudflare_ed25519_yao_v2_role_share(
+        &role_binding,
+        custody_binding,
+        TwoPartyDeriverRole::DeriverA,
     )?;
-    load_yao_root_metadata_digest(
-        env,
-        CloudflareWorkerRoleV1::DeriverA,
-        runtime.root_share_wire_secret(),
-        metadata,
+    let share = share_wire
+        .to_share()
+        .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    let expected_peer_commitment = SigningRootShareCommitment::from_slice(
+        custody_binding.commitments().deriver_b().as_bytes(),
     )
-    .await
+    .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    let stable_context_bytes = stable_context.encode();
+    let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
+    let (prepared, outbound) = prepare_ed25519_deriver_a_target_v1(
+        &share,
+        expected_peer_commitment,
+        &stable_context_bytes,
+        &mut rng,
+    )
+    .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    Ed25519YaoDeriverAPrefaceInFlightV2::new(outer_binding, prepared, outbound)
 }
 
-async fn load_deriver_a_yao_root_with_metadata_digest(
-    env: &Env,
-    runtime: &CloudflareDeriverAWorkerRuntimeV1,
-    lifecycle: &LifecycleScopeV1,
-    trace_id: RoleTraceContextV1,
-) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
-    lifecycle.validate()?;
-    let metadata = runtime.root_share_wire_secret().startup_metadata(
-        lifecycle.signer_set_id.clone(),
-        runtime.peer_signing_key().key_epoch.clone(),
-        lifecycle.root_share_epoch.clone(),
+/// Completes the V2 Deriver A preface and feeds its target root into the
+/// unchanged role-local contribution KDF.
+pub(crate) fn complete_cloudflare_ed25519_yao_deriver_a_target_v2(
+    preface: Ed25519YaoDeriverAPrefaceInFlightV2,
+    incoming: &Ed25519YaoDeriverBToATargetProofPayloadV2,
+    incoming_plaintext: &[u8],
+    expected_outer_binding: &Ed25519YaoOuterBindingV2,
+    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+) -> RouterAbProtocolResult<Ed25519YaoDeriverAServerContributionV1> {
+    let ready = preface
+        .complete(incoming, incoming_plaintext)
+        .map_err(|error| invalid_lifecycle(error.message()))?;
+    if ready.binding() != expected_outer_binding
+        || stable_context.binding_digest() != ready.binding().stable_context_binding().into_bytes()
+    {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 Deriver A completion binding does not match the stable context",
+        ));
+    }
+    let target_root = ready.into_threshold_prf_root().into_secret_bytes();
+    derive_ed25519_yao_deriver_a_server_contribution_v1(
+        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes(*target_root),
+        stable_context,
+    )
+    .map_err(|error| {
+        invalid_lifecycle(format!(
+            "Ed25519 Yao Deriver A contribution failed: {error}"
+        ))
+    })
+}
+
+/// Prepares the V2 role-target preface from the authenticated Deriver B share.
+///
+/// The returned state owns only B's local threshold-PRF partial. Its outbound
+/// plaintext is the fixed A-target proof exposed by
+/// [`Ed25519YaoDeriverBPrefaceInFlightV2::outbound_plaintext`].
+pub(crate) fn prepare_cloudflare_ed25519_yao_deriver_b_target_v2(
+    role_share: VerifiedTenantRootOnlineRoleShareV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+    outer_binding: Ed25519YaoOuterBindingV2,
+    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+) -> RouterAbProtocolResult<Ed25519YaoDeriverBPrefaceInFlightV2> {
+    validate_cloudflare_ed25519_yao_v2_binding(&outer_binding, custody_binding, stable_context)?;
+    let (role_binding, share_wire) = role_share.into_parts();
+    validate_cloudflare_ed25519_yao_v2_role_share(
+        &role_binding,
+        custody_binding,
+        TwoPartyDeriverRole::DeriverB,
     )?;
-    let started_at_ms = role_span_started_at_ms();
-    let result = load_yao_root_with_metadata_digest(
-        env,
-        CloudflareWorkerRoleV1::DeriverA,
-        runtime.root_share_wire_secret(),
-        metadata,
-        b"deriver-a",
+    let share = share_wire
+        .to_share()
+        .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    let expected_peer_commitment = SigningRootShareCommitment::from_slice(
+        custody_binding.commitments().deriver_a().as_bytes(),
     )
-    .await;
-    emit_role_span_v1(
-        trace_id,
-        "deriver_a.root_share",
-        "deriver_a",
-        "worker_secret",
-        started_at_ms,
-        if result.is_ok() { "success" } else { "failure" },
-    );
-    result
-}
-
-async fn load_deriver_b_yao_root_metadata_digest(
-    env: &Env,
-    runtime: &CloudflareDeriverBWorkerRuntimeV1,
-    lifecycle: &LifecycleScopeV1,
-) -> RouterAbProtocolResult<[u8; 32]> {
-    lifecycle.validate()?;
-    let metadata = runtime.root_share_wire_secret().startup_metadata(
-        lifecycle.signer_set_id.clone(),
-        runtime.peer_signing_key().key_epoch.clone(),
-        lifecycle.root_share_epoch.clone(),
-    )?;
-    load_yao_root_metadata_digest(
-        env,
-        CloudflareWorkerRoleV1::DeriverB,
-        runtime.root_share_wire_secret(),
-        metadata,
+    .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    let stable_context_bytes = stable_context.encode();
+    let mut rng = crate::CloudflareSignerProofGetrandomRngV1;
+    let (prepared, outbound) = prepare_ed25519_deriver_b_target_v1(
+        &share,
+        expected_peer_commitment,
+        &stable_context_bytes,
+        &mut rng,
     )
-    .await
+    .map_err(map_cloudflare_ed25519_yao_v2_threshold_error)?;
+    Ed25519YaoDeriverBPrefaceInFlightV2::new(outer_binding, prepared, outbound)
 }
 
-async fn load_deriver_b_yao_root_with_metadata_digest(
-    env: &Env,
-    runtime: &CloudflareDeriverBWorkerRuntimeV1,
-    lifecycle: &LifecycleScopeV1,
-    trace_id: RoleTraceContextV1,
-) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
-    lifecycle.validate()?;
-    let metadata = runtime.root_share_wire_secret().startup_metadata(
-        lifecycle.signer_set_id.clone(),
-        runtime.peer_signing_key().key_epoch.clone(),
-        lifecycle.root_share_epoch.clone(),
-    )?;
-    let started_at_ms = role_span_started_at_ms();
-    let result = load_yao_root_with_metadata_digest(
-        env,
-        CloudflareWorkerRoleV1::DeriverB,
-        runtime.root_share_wire_secret(),
-        metadata,
-        b"deriver-b",
+/// Completes the V2 Deriver B preface and feeds its target root into the
+/// unchanged role-local contribution KDF.
+pub(crate) fn complete_cloudflare_ed25519_yao_deriver_b_target_v2(
+    preface: Ed25519YaoDeriverBPrefaceInFlightV2,
+    incoming: &Ed25519YaoDeriverAToBTargetProofPayloadV2,
+    incoming_plaintext: &[u8],
+    expected_outer_binding: &Ed25519YaoOuterBindingV2,
+    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+) -> RouterAbProtocolResult<Ed25519YaoDeriverBServerContributionV1> {
+    let ready = preface
+        .complete(incoming, incoming_plaintext)
+        .map_err(|error| invalid_lifecycle(error.message()))?;
+    if ready.binding() != expected_outer_binding
+        || stable_context.binding_digest() != ready.binding().stable_context_binding().into_bytes()
+    {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 Deriver B completion binding does not match the stable context",
+        ));
+    }
+    let target_root = ready.into_threshold_prf_root().into_secret_bytes();
+    derive_ed25519_yao_deriver_b_server_contribution_v1(
+        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes(*target_root),
+        stable_context,
     )
-    .await;
-    emit_role_span_v1(
-        trace_id,
-        "deriver_b.root_share",
-        "deriver_b",
-        "worker_secret",
-        started_at_ms,
-        if result.is_ok() { "success" } else { "failure" },
-    );
-    result
+    .map_err(|error| {
+        invalid_lifecycle(format!(
+            "Ed25519 Yao Deriver B contribution failed: {error}"
+        ))
+    })
 }
 
-async fn load_yao_root_metadata_digest(
-    env: &Env,
-    worker_role: CloudflareWorkerRoleV1,
-    root_share_secret: &crate::CloudflareRootShareWireSecretBindingV1,
-    metadata: crate::CloudflareRootShareStartupMetadataV1,
-) -> RouterAbProtocolResult<[u8; 32]> {
-    load_cloudflare_root_share_wire_secret_v1(env, worker_role, root_share_secret, &metadata)?;
-    root_metadata_digest_v1(&metadata)
+fn validate_cloudflare_ed25519_yao_v2_binding(
+    outer_binding: &Ed25519YaoOuterBindingV2,
+    custody_binding: &TenantRootCustodyBindingV1,
+    stable_context: &Ed25519YaoStableKeyDerivationContextV1,
+) -> RouterAbProtocolResult<()> {
+    outer_binding
+        .validate_at(
+            cloudflare_yao_now_unix_ms().map_err(|_| {
+                invalid_lifecycle("Ed25519 Yao V2 outer binding clock is unavailable")
+            })?,
+        )
+        .map_err(|error| invalid_lifecycle(error.message()))?;
+    custody_binding
+        .validate()
+        .map_err(|error| invalid_lifecycle(error.message()))?;
+    if stable_context.binding_digest() != outer_binding.stable_context_binding().into_bytes() {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 outer binding does not match the stable context",
+        ));
+    }
+    let custody_digest = custody_binding
+        .digest()
+        .map_err(|error| invalid_lifecycle(error.message()))?;
+    if outer_binding.custody_binding_digest() != PublicDigest32::new(custody_digest.into_bytes()) {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 outer binding does not match the custody binding",
+        ));
+    }
+    Ok(())
 }
 
-async fn load_yao_root_with_metadata_digest(
-    env: &Env,
-    worker_role: CloudflareWorkerRoleV1,
-    root_share_secret: &crate::CloudflareRootShareWireSecretBindingV1,
-    metadata: crate::CloudflareRootShareStartupMetadataV1,
-    role_label: &[u8],
-) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
-    let root_metadata_digest = root_metadata_digest_v1(&metadata)?;
-    let wire =
-        load_cloudflare_root_share_wire_secret_v1(env, worker_role, root_share_secret, &metadata)?;
-    let signing_root_share_wire = wire.signing_root_share_wire();
-    let mut hasher = Sha256::new();
-    hasher.update(b"seams/router-ab/ed25519-yao/derivation-root/v1");
-    hasher.update(role_label);
-    hasher.update(signing_root_share_wire.as_bytes());
-    Ok((hasher.finalize().into(), root_metadata_digest))
+fn validate_cloudflare_ed25519_yao_v2_role_share(
+    role_binding: &router_ab_core::TenantRootOnlineRoleShareBindingV1,
+    custody_binding: &TenantRootCustodyBindingV1,
+    role: TwoPartyDeriverRole,
+) -> RouterAbProtocolResult<()> {
+    if role_binding.role() != role
+        || role_binding.identity_digest() != custody_binding.identity_digest()
+        || role_binding.custody_lineage() != custody_binding.custody_lineage()
+        || role_binding.epoch() != custody_binding.epoch()
+    {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 role share does not match the custody binding",
+        ));
+    }
+    let expected_commitment = match role {
+        TwoPartyDeriverRole::DeriverA => custody_binding.commitments().deriver_a(),
+        TwoPartyDeriverRole::DeriverB => custody_binding.commitments().deriver_b(),
+    };
+    if role_binding.share_commitment() != expected_commitment {
+        return Err(invalid_lifecycle(
+            "Ed25519 Yao V2 role share commitment does not match the custody binding",
+        ));
+    }
+    Ok(())
+}
+
+fn map_cloudflare_ed25519_yao_v2_threshold_error(
+    error: threshold_prf::ThresholdPrfError,
+) -> RouterAbProtocolError {
+    invalid_lifecycle(format!("Ed25519 Yao V2 target proof failed: {error}"))
 }
 
 fn validate_expected_root_metadata_digest(
@@ -3740,6 +3873,161 @@ fn validate_expected_root_metadata_digest(
         ));
     }
     Ok(())
+}
+
+async fn load_ed25519_yao_tenant_root_role_share_v2(
+    env: &Env,
+    worker_role: CloudflareWorkerRoleV1,
+    tenant_root: &crate::CloudflareEd25519YaoTenantRootContextV2,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+) -> RouterAbProtocolResult<(
+    TenantRootCustodyBindingV1,
+    VerifiedTenantRootOnlineRoleShareV1,
+    Ed25519YaoStableKeyDerivationContextV1,
+    [u8; 32],
+)> {
+    tenant_root.validate_for_pair(pair_binding)?;
+    let now_unix_ms =
+        cloudflare_yao_now_unix_ms().map_err(|_| invalid_lifecycle("Yao clock is unavailable"))?;
+    let custody_binding = tenant_root.custody_binding.authenticate_for_ed25519_yao(
+        env,
+        pair_binding,
+        &tenant_root.application,
+        tenant_root.participant_ids,
+        now_unix_ms,
+    )?;
+    let role_share =
+        load_cloudflare_active_tenant_root_role_share_v1(env, worker_role, &custody_binding)
+            .await?;
+    let root_metadata_digest = *role_share
+        .binding()
+        .digest()
+        .map_err(super::map_root_share_to_protocol)?
+        .as_bytes();
+    let stable_context =
+        stable_key_derivation_context_v1(&tenant_root.application, tenant_root.participant_ids)
+            .map_err(|error| {
+                invalid_lifecycle(format!(
+                    "Ed25519 Yao stable context construction failed: {error}"
+                ))
+            })?;
+    Ok((
+        custody_binding,
+        role_share,
+        stable_context,
+        root_metadata_digest,
+    ))
+}
+
+fn seal_ed25519_yao_target_proof_v2(
+    env: &Env,
+    recipient: Ed25519YaoDeriverRoleV1,
+    aad: &[u8],
+    plaintext: &[u8],
+) -> RouterAbProtocolResult<([u8; 32], Vec<u8>)> {
+    let public_keys = parse_cloudflare_signer_envelope_hpke_public_key_set_v1(
+        &CloudflareWorkerEnvReaderV1::new(env),
+    )?;
+    let public_key = match recipient {
+        Ed25519YaoDeriverRoleV1::DeriverA => &public_keys.deriver_a.public_key,
+        Ed25519YaoDeriverRoleV1::DeriverB => &public_keys.deriver_b.public_key,
+    };
+    let public_key = parse_cloudflare_hpke_x25519_public_key_v1(public_key)?;
+    let (encapsulated_key, ciphertext) = CloudflareHpkeSuiteV1::seal_base(
+        &mut CloudflareHpkeGetrandomRngV1,
+        &public_key,
+        ED25519_YAO_TARGET_PROOF_HPKE_INFO_V2,
+        aad,
+        plaintext,
+    )
+    .map_err(|_| invalid_lifecycle("Ed25519 Yao target proof encryption failed"))?;
+    let encapsulated_key = encapsulated_key
+        .as_ref()
+        .try_into()
+        .map_err(|_| invalid_lifecycle("Ed25519 Yao target proof key has invalid length"))?;
+    Ok((encapsulated_key, ciphertext))
+}
+
+fn open_ed25519_yao_target_proof_v2(
+    env: &Env,
+    private_key_binding: &str,
+    encapsulated_key: &[u8; 32],
+    ciphertext: &[u8],
+    aad: &[u8],
+) -> RouterAbProtocolResult<Zeroizing<Vec<u8>>> {
+    let secret = env
+        .secret(private_key_binding)
+        .map_err(|_| invalid_lifecycle("Deriver target-proof HPKE secret binding is missing"))?;
+    let mut encoded = secret.to_string();
+    let mut private_key_bytes =
+        decode_cloudflare_signer_envelope_hpke_private_key_secret_v1(&encoded)?;
+    encoded.zeroize();
+    let private_key = CloudflareHpkeKemV1::sk_from_bytes(&private_key_bytes)
+        .map_err(|_| invalid_lifecycle("Deriver target-proof HPKE private key is invalid"))?;
+    private_key_bytes.zeroize();
+    let encapsulated_key = CloudflareHpkeKemV1::enc_from_bytes(encapsulated_key)
+        .map_err(|_| invalid_lifecycle("Ed25519 Yao target proof key is invalid"))?;
+    CloudflareHpkeSuiteV1::open_base(
+        &encapsulated_key,
+        &private_key,
+        ED25519_YAO_TARGET_PROOF_HPKE_INFO_V2,
+        aad,
+        ciphertext,
+    )
+    .map(Zeroizing::new)
+    .map_err(|_| invalid_lifecycle("Ed25519 Yao target proof decryption failed"))
+}
+
+fn seal_deriver_a_target_proof_v2(
+    env: &Env,
+    binding: &Ed25519YaoOuterBindingV2,
+    plaintext: &[u8],
+) -> RouterAbProtocolResult<Ed25519YaoDeriverAToBTargetProofPayloadV2> {
+    let aad = Ed25519YaoDeriverAToBTargetProofPayloadV2::aad_for_binding(binding)?;
+    let (encapsulated_key, ciphertext) =
+        seal_ed25519_yao_target_proof_v2(env, Ed25519YaoDeriverRoleV1::DeriverB, &aad, plaintext)?;
+    Ed25519YaoDeriverAToBTargetProofPayloadV2::new(binding.clone(), encapsulated_key, ciphertext)
+}
+
+fn open_deriver_a_target_proof_v2(
+    env: &Env,
+    private_key_binding: &str,
+    payload: &Ed25519YaoDeriverBToATargetProofPayloadV2,
+) -> RouterAbProtocolResult<Zeroizing<Vec<u8>>> {
+    let aad = Ed25519YaoDeriverBToATargetProofPayloadV2::aad_for_binding(payload.binding())?;
+    open_ed25519_yao_target_proof_v2(
+        env,
+        private_key_binding,
+        payload.encapsulated_key(),
+        payload.ciphertext(),
+        &aad,
+    )
+}
+
+fn seal_deriver_b_target_proof_v2(
+    env: &Env,
+    binding: &Ed25519YaoOuterBindingV2,
+    plaintext: &[u8],
+) -> RouterAbProtocolResult<Ed25519YaoDeriverBToATargetProofPayloadV2> {
+    let aad = Ed25519YaoDeriverBToATargetProofPayloadV2::aad_for_binding(binding)?;
+    let (encapsulated_key, ciphertext) =
+        seal_ed25519_yao_target_proof_v2(env, Ed25519YaoDeriverRoleV1::DeriverA, &aad, plaintext)?;
+    Ed25519YaoDeriverBToATargetProofPayloadV2::new(binding.clone(), encapsulated_key, ciphertext)
+}
+
+fn open_deriver_b_target_proof_v2(
+    env: &Env,
+    private_key_binding: &str,
+    payload: &Ed25519YaoDeriverAToBTargetProofPayloadV2,
+) -> RouterAbProtocolResult<Zeroizing<Vec<u8>>> {
+    let aad = Ed25519YaoDeriverAToBTargetProofPayloadV2::aad_for_binding(payload.binding())?;
+    open_ed25519_yao_target_proof_v2(
+        env,
+        private_key_binding,
+        payload.encapsulated_key(),
+        payload.ciphertext(),
+        &aad,
+    )
 }
 
 fn load_deriver_input_private_key(
@@ -4009,6 +4297,42 @@ mod tests {
         })
     }
 
+    fn tenant_root_context_for_pair(
+        pair: &Ed25519YaoInputPairBindingV1,
+    ) -> crate::CloudflareEd25519YaoTenantRootContextV2 {
+        crate::CloudflareEd25519YaoTenantRootContextV2 {
+            custody_binding: crate::CloudflareTenantRootCustodyBindingWireV1 {
+                activation_receipt_b64u: "AQ".to_owned(),
+                operation_id: router_ab_core::TenantRootDerivationOperationIdV1::from_bytes(
+                    [21; 16],
+                )
+                .expect("operation"),
+                session_id: router_ab_core::TenantRootDerivationSessionIdV1::from_bytes([22; 16])
+                    .expect("session"),
+                nonce: router_ab_core::TenantRootDerivationNonceV1::from_bytes([23; 32])
+                    .expect("nonce"),
+                issued_at_ms: 1,
+                expires_at_ms: 2,
+            },
+            outer_binding: Ed25519YaoOuterBindingV2::new(
+                router_ab_core::Ed25519YaoPairSessionIdV2::from_yao_session(
+                    Ed25519YaoSessionIdV1::new(pair.session()).expect("pair session"),
+                ),
+                pair.binding().stable_key_context_binding,
+                PublicDigest32::new([24; 32]),
+                [25; 16],
+                1,
+                2,
+            )
+            .expect("outer binding"),
+            application: router_ab_core::RouterAbEd25519YaoApplicationBindingFactsV1::new(
+                "account", "near-key", "root", 1,
+            )
+            .expect("application"),
+            participant_ids: [1, 2],
+        }
+    }
+
     #[test]
     fn session_input_digest_binds_the_exact_ciphertext() {
         let first = encrypted_input(4);
@@ -4131,12 +4455,15 @@ mod tests {
         let pair_digest = [9; 32];
         let execution_id = [10; 32];
         let execution = role_execution_for_pair(&pair);
+        let tenant_root = tenant_root_context_for_pair(&pair);
         let running = PairYaoSessionRecordV1::Running {
             pair_digest,
             input_digest,
             root_metadata_digest: [15; 32],
             execution_id,
             started_at_ms: 100,
+            pair_binding: Box::new(pair.clone()),
+            tenant_root: Box::new(tenant_root),
             input: Box::new(input),
             work: crate::CloudflareEd25519YaoPairWorkV1::Ceremony,
         };

@@ -9,6 +9,79 @@ pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_WELL_KNOWN_PATH: &str = "/.well-known/
 pub const CLOUDFLARE_ROUTER_PUBLIC_KEYSET_PATH: &str = "/router-ab/keyset";
 /// Authenticated internal endpoint that initializes one deployed Worker isolate.
 pub const CLOUDFLARE_INTERNAL_PREWARM_PATH: &str = "/internal/prewarm";
+/// Authenticated private Router endpoint for starting tenant-root creation.
+pub const CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/tenant-root/creation/v1/create";
+/// Authenticated private Router endpoint for refreshing one tenant root.
+pub const CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/tenant-root/refresh/v1/execute";
+/// Authenticated private Router endpoint for coordinating one managed role
+/// restore and its mandatory forward refresh.
+pub const CLOUDFLARE_ROUTER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/tenant-root/restore/v1/execute";
+/// Tenant-root control-plane issuer operation: mint one role creation command.
+///
+/// Private, internal-service-authenticated. The request names only an
+/// identity, a custody lineage, and a role; every other command field is
+/// derived by the issuer from authoritative Durable Object state and its own
+/// local key configuration, so a caller cannot select authority, revision,
+/// session, nonce, time window, or signing key.
+/// Tenant-root control-plane genesis operation: open one tenant root.
+///
+/// Private, internal-service-authenticated. The request carries only a signed
+/// creation grant; the issuer verifies it against its own configured
+/// authorities and derives every ceremony field itself.
+/// Deriver tenant-root creation: admit an issuer-signed role command package.
+///
+/// Private, internal-service-authenticated. The Deriver derives its own role,
+/// authority, clock, and signer locally; the request carries only the signed
+/// package and the peer material the ceremony needs.
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/creation/v1/activate";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate";
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/execute";
+/// Private Deriver endpoint for staging one issuer-authorized managed restore.
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/deriver/tenant-root/restore/v1/stage";
+/// Private Deriver endpoint for executing one managed-restore forward refresh.
+pub const CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH:
+    &str = "/router-ab/internal/deriver/tenant-root/restore/v1/forward-refresh";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/create";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/role-command";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/refresh/v1/commands";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/refresh/v1/activate";
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/cleanup-command";
+/// Tenant-root control-plane issuer operation: issue the initial activation receipt.
+///
+/// Private, internal-service-authenticated. The request carries only exact
+/// canonical public installation, backup, and provider-canary artifacts.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/creation/v1/activate";
+/// Tenant-root control-plane issuer operation: mint one DO-bound managed
+/// restore authorization challenge.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_PATH:
+    &str = "/tenant-root-control-plane/restore/v1/challenge";
+/// Tenant-root control-plane issuer operation: verify one incident token and
+/// checkpoint the issuer-signed managed-restore artifacts.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_PATH:
+    &str = "/tenant-root-control-plane/restore/v1/authorize";
+/// Tenant-root control-plane cutover checkpoint read operation.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CUTOVER_READ_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/cutover/v1/read";
+/// Tenant-root control-plane cutover checkpoint mutation operation.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CUTOVER_WRITE_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/cutover/v1/write";
 /// Public Router endpoint for normal signing through the active SigningWorker.
 pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH: &str = "/router-ab/ed25519/sign";
 /// Public Router endpoint for preparing normal-signing round-1 material.
@@ -218,6 +291,98 @@ const CLOUDFLARE_DERIVER_B_PEER_REQUEST_URL: &str = concat!(
     "/router-ab/deriver-b/peer"
 );
 #[cfg(feature = "workers-rs")]
+#[allow(dead_code)]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share"
+);
+#[cfg(feature = "workers-rs")]
+#[allow(dead_code)]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/create-role-share"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/cleanup/v1/execute"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/creation/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-a.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/execute"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-deriver-b.internal",
+    "/router-ab/internal/deriver/tenant-root/refresh/v1/execute"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/creation/v1/create"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/creation/v1/role-command"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/refresh/v1/commands"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/refresh/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/creation/v1/cleanup-command"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/creation/v1/activate"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/restore/v1/challenge"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/restore/v1/authorize"
+);
+#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/activate"
@@ -273,12 +438,12 @@ fn cloudflare_deriver_peer_url(
     match peer.peer_role {
         CloudflareWorkerRoleV1::DeriverA => Ok(deriver_a_url),
         CloudflareWorkerRoleV1::DeriverB => Ok(deriver_b_url),
-        CloudflareWorkerRoleV1::Router | CloudflareWorkerRoleV1::SigningWorker => {
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                message,
-            ))
-        }
+        CloudflareWorkerRoleV1::Router
+        | CloudflareWorkerRoleV1::SigningWorker
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            message,
+        )),
     }
 }
 
@@ -292,7 +457,8 @@ fn cloudflare_signing_worker_url(
         CloudflareWorkerRoleV1::SigningWorker => Ok(service_url),
         CloudflareWorkerRoleV1::Router
         | CloudflareWorkerRoleV1::DeriverA
-        | CloudflareWorkerRoleV1::DeriverB => Err(RouterAbProtocolError::new(
+        | CloudflareWorkerRoleV1::DeriverB
+        | CloudflareWorkerRoleV1::TenantRootControlPlane => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             message,
         )),
@@ -345,6 +511,114 @@ pub(crate) fn cloudflare_deriver_peer_service_url(
         CLOUDFLARE_DERIVER_B_PEER_REQUEST_URL,
         "direct A/B peer handler can send peer work only to signer peers",
     )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_create_role_share_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_CREATE_ROLE_SHARE_PRIVATE_REQUEST_URL,
+        "tenant-root role creation can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_cleanup_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_CLEANUP_PRIVATE_REQUEST_URL,
+        "tenant-root cleanup can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_initial_activation_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL,
+        "tenant-root initial activation can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_refresh_activation_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL,
+        "tenant-root refresh activation can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_deriver_tenant_root_refresh_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_deriver_peer_url(
+        peer,
+        CLOUDFLARE_DERIVER_A_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_URL,
+        CLOUDFLARE_DERIVER_B_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_URL,
+        "tenant-root refresh can target only Deriver A or Deriver B",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_create_tenant_root_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_role_creation_command_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_ROLE_CREATION_COMMAND_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_refresh_commands_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_refresh_activation_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_REFRESH_ACTIVATION_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_cleanup_command_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_initial_activation_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_managed_restore_challenge_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_managed_restore_authorize_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_URL
 }
 
 #[cfg(feature = "workers-rs")]
