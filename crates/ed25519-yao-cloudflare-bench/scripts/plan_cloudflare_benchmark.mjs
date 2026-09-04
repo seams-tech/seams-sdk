@@ -53,6 +53,20 @@ function customDomain(hostname) {
   return [Object.freeze({ pattern: hostname, custom_domain: true })];
 }
 
+function applyPublicRoute(rendered, hostname, route) {
+  if (route.kind === 'workers-dev') {
+    rendered.workers_dev = true;
+    delete rendered.routes;
+    return;
+  }
+  if (route.kind === 'custom-domain') {
+    rendered.workers_dev = false;
+    rendered.routes = customDomain(hostname);
+    return;
+  }
+  throw new BoundaryError('unsupported benchmark public route');
+}
+
 function quotedCommandArgument(value) {
   return JSON.stringify(value);
 }
@@ -86,16 +100,14 @@ function renderRoleConfig(configuration, role, deploymentId) {
     rendered.vars.BENCHMARK_DEPLOYMENT_ID = deploymentId;
   }
   if (role === 'a') {
-    rendered.workers_dev = false;
-    rendered.routes = customDomain(configuration.a.publicHostname);
+    applyPublicRoute(rendered, configuration.a.publicHostname, configuration.a.publicRoute);
     if (configuration.topology === 'one-account') {
       rendered.services[0].service = configuration.b.scriptName;
     } else {
       rendered.vars.DERIVER_B_WEBSOCKET_ENDPOINT = configuration.b.publicEndpoint;
     }
   } else if (configuration.topology === 'two-account') {
-    rendered.workers_dev = false;
-    rendered.routes = customDomain(configuration.b.publicHostname);
+    applyPublicRoute(rendered, configuration.b.publicHostname, configuration.b.publicRoute);
   }
   return rendered;
 }
@@ -381,9 +393,11 @@ function writeRenderedConfig(directory, role, config) {
   return path;
 }
 
-function deploymentFeature(configuration, role) {
+export function deploymentFeature(configuration, role) {
   if (configuration.topology === 'one-account') {
-    return role === 'a' ? 'deriver-a' : 'deriver-b';
+    return role === 'a'
+      ? 'deriver-a-same-account-websocket'
+      : 'deriver-b-same-account-websocket';
   }
   return role === 'a' ? 'deriver-a-cross-account' : 'deriver-b-cross-account';
 }

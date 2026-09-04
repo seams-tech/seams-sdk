@@ -42,6 +42,12 @@ let activeOperationStepUpFetchCapture: RefreshFetchCapture | null = null;
 let activeOperationStepUpResponseBody: Record<string, unknown> | null = null;
 
 const unusedCredentialStore: ThresholdCredentialStorePort = {
+  async listWalletPasskeyAuthenticators() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
+  async listWalletAuthMethodsV2ForWallet() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
   async resolveProfileAccountContext() {
     throw new Error('credential store must not be used with supplied authorization');
   },
@@ -552,6 +558,9 @@ test('Ed25519 session connection returns the issued operation credential exactly
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected an issued Ed25519 session');
     expect(result.sessionKind).toBe('issued_exact_wallet_session');
+    if (result.sessionKind !== 'issued_exact_wallet_session') {
+      throw new Error('expected a newly issued Ed25519 session');
+    }
     expect(result.operationCredential.walletSessionId).toBe(result.walletSessionId);
     expect(result).not.toHaveProperty('walletSessionToken');
   } finally {

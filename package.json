@@ -60,7 +60,6 @@
     "deploy:frontend": "node ./scripts/deploy-frontend.mjs",
     "router:deploy:browser-evidence": "pnpm -C tests exec playwright test -c playwright.router-ab-deployed-evidence.config.ts --reporter=line",
     "router:deploy:keygen": "node ./crates/router-ab-cloudflare/scripts/generate-deployment-keys.mjs",
-    "router:deploy:root-share-keygen": "node ./crates/router-ab-cloudflare/scripts/generate-root-share-keys.mjs",
     "wallet-core:deploy:env-prepare": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --prepare",
     "wallet-core:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --apply --component wallet-core",
     "product:deploy:env-apply": "node ./crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs --apply --component product",

@@ -5,8 +5,10 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaCredentialFreeSessionActivationResponseV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { EcdsaCredentialFreeSessionActivationAuthorization } from '../../threshold/ecdsa/postRegistrationSessionActivation';
 import { buildEmailOtpAuthContextForCanonicalWallet } from '../identity/laneIdentity';
 import type {
   EvmFamilyEcdsaKeyHandle,
@@ -17,6 +19,7 @@ import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocal
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import type { WalletSessionOperationCredentialV1 } from '@shared/device-linking';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type { ExactWalletSessionAuthorityIdentity } from '../persistence/walletSessionAuthorizationProjection';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
@@ -31,8 +34,11 @@ declare const lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
 declare const passkeyCredentialIdB64u: string;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+declare const credentialFreeSessionActivation: EcdsaCredentialFreeSessionActivationAuthorization;
+declare const rawCredentialFreeSessionActivation: RouterAbEcdsaCredentialFreeSessionActivationResponseV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
 declare const authorizationAuthority: WalletAuthAuthorityRef;
+declare const authorizationIdentity: ExactWalletSessionAuthorityIdentity;
 declare const operationCredential: WalletSessionOperationCredentialV1;
 
 const validReuseBootstrap = {
@@ -73,11 +79,25 @@ const validPasskeyPreauthorizedBootstrap = {
   publicCapability,
   existingRoleLocalMaterial,
   authorizationAuthority,
+  authorizationIdentity,
   source: 'login',
   passkeyCredentialIdB64u,
   sessionActivation,
 } satisfies EcdsaBootstrapRequest;
 void validPasskeyPreauthorizedBootstrap;
+
+const validCredentialFreePasskeyPreauthorizedBootstrap = {
+  ...validPasskeyPreauthorizedBootstrap,
+  sessionActivation: credentialFreeSessionActivation,
+} satisfies EcdsaBootstrapRequest;
+void validCredentialFreePasskeyPreauthorizedBootstrap;
+
+const invalidRawCredentialFreePasskeyPreauthorizedBootstrap: EcdsaBootstrapRequest = {
+  ...validPasskeyPreauthorizedBootstrap,
+  // @ts-expect-error Credential-free activation requires its exact authorization wrapper.
+  sessionActivation: rawCredentialFreeSessionActivation,
+};
+void invalidRawCredentialFreePasskeyPreauthorizedBootstrap;
 
 // @ts-expect-error Preauthorized bootstrap requires the already-authorized session activation.
 const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapRequest = {
@@ -88,6 +108,7 @@ const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapReque
   publicCapability,
   existingRoleLocalMaterial,
   authorizationAuthority,
+  authorizationIdentity,
   source: 'login',
   passkeyCredentialIdB64u,
 };
@@ -102,6 +123,7 @@ const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest =
   publicCapability,
   existingRoleLocalMaterial,
   authorizationAuthority,
+  authorizationIdentity,
   source: 'login',
   passkeyCredentialIdB64u,
   sessionActivation,

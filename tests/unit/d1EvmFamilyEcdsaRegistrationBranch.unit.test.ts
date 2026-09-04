@@ -85,7 +85,7 @@ function testStrictRegistrationPort(): RouterAbEcdsaStrictRegistrationPort {
   const topology = testStrictRegistrationTopology();
   return {
     topology: () => topology,
-    register: async () => {
+    registerWithTenantRoot: async () => {
       throw new Error('strict registration register() is unreachable in this fixture');
     },
     activate: async () => {

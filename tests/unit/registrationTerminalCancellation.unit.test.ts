@@ -47,6 +47,11 @@ const REQUEST_POLICY = {
   requestDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
 } as const;
 
+const TENANT_ROOT = {
+  identityDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+  custodyLineageB64u: 'AAAAAAAAAAAAAAAAAAAAAA',
+} as const;
+
 function emptyJwks(): { readonly keys: readonly JsonWebKey[] } {
   return { keys: [] };
 }
@@ -87,8 +92,9 @@ test('coordinator configuration failures are terminal registration failures', as
   });
 
   await expect(
-    port.register({
+    port.registerWithTenantRoot({
       request,
+      tenantRoot: TENANT_ROOT,
       requestPolicy: REQUEST_POLICY,
       authority: {
         subjectId: request.client_id,
@@ -140,8 +146,9 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
   });
   const traceContext = createRouterAbTraceContextV1();
 
-  await port.register({
+  await port.registerWithTenantRoot({
     request,
+    tenantRoot: TENANT_ROOT,
     requestPolicy: REQUEST_POLICY,
     authority: {
       subjectId: request.client_id,
@@ -153,6 +160,60 @@ test('strict ECDSA registration forwards the opaque trace correlation header', a
   });
 
   expect(router.request?.headers.get('x-seams-trace-id')).toBe(traceContext.value);
+});
+
+test('initial ECDSA registration forwards the server-resolved tenant-root selector', async () => {
+  const request = strictRegistrationRequest();
+  const router = new TraceCapturingRouter();
+  const port = strictRegistrationPortForRequest({ request, router });
+  await port.registerWithTenantRoot({
+    request,
+    tenantRoot: TENANT_ROOT,
+    requestPolicy: REQUEST_POLICY,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+  });
+
+  expect(await router.request?.json()).toEqual({
+    registration_request: request,
+    tenant_root: {
+      identity_digest_b64u: TENANT_ROOT.identityDigestB64u,
+      custody_lineage_b64u: TENANT_ROOT.custodyLineageB64u,
+    },
+  });
+});
+
+test('ECDSA add-signer uses its exact tenant-root route and envelope', async () => {
+  const request = strictRegistrationRequest('wallet_add_signer');
+  const router = new TraceCapturingRouter();
+  const port = strictRegistrationPortForRequest({ request, router });
+
+  await port.registerWithTenantRoot({
+    request,
+    tenantRoot: TENANT_ROOT,
+    requestPolicy: REQUEST_POLICY,
+    authority: {
+      subjectId: request.client_id,
+      sessionId: request.lifecycle.session_id,
+      accountId: request.lifecycle.account_id,
+      expiresAtMs: request.expires_at_ms,
+    },
+  });
+
+  expect(new URL(router.request?.url || '').pathname).toBe(
+    '/router-ab/ecdsa-derivation/add-signer',
+  );
+  expect(await router.request?.json()).toEqual({
+    registration_request: request,
+    tenant_root: {
+      identity_digest_b64u: TENANT_ROOT.identityDigestB64u,
+      custody_lineage_b64u: TENANT_ROOT.custodyLineageB64u,
+    },
+  });
 });
 
 test('strict ECDSA activation forwards the exact Rust wire envelope', async () => {
@@ -176,7 +237,8 @@ test('strict ECDSA activation forwards the exact Rust wire envelope', async () =
     materialActivation,
     pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1({
       kind: 'router_ab_ecdsa_pending_activation_v1',
-      canonicalPayloadJson: '{"activation":{},"activation_context":{},"registration":{}}',
+      canonicalPayloadJson:
+        '{"activation":{},"activation_context":{},"registration":{},"tenant_root_custody_binding_digest":{}}',
     }),
     clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     requestPolicy: REQUEST_POLICY,
@@ -194,6 +256,7 @@ test('strict ECDSA activation forwards the exact Rust wire envelope', async () =
       activation: {},
       activation_context: {},
       registration: {},
+      tenant_root_custody_binding_digest: {},
     },
     client_activation: fixtureRouterAbEcdsaActivationFacts(),
     material_activation: materialActivation,
@@ -272,10 +335,12 @@ function strictRegistrationPortForRequest(args: {
   });
 }
 
-function strictRegistrationRequest(): RouterAbEcdsaRegistrationRequestV1 {
+function strictRegistrationRequest(
+  registrationPurpose: RouterAbEcdsaRegistrationRequestV1['registration_purpose'] = 'wallet_registration',
+): RouterAbEcdsaRegistrationRequestV1 {
   const digest = { bytes: new Array<number>(32).fill(0) };
   return {
-    registration_purpose: 'wallet_registration',
+    registration_purpose: registrationPurpose,
     context: { application_binding_digest_b64u: 'application-binding' },
     lifecycle: {
       lifecycle_id: 'wrc_terminal_failure',

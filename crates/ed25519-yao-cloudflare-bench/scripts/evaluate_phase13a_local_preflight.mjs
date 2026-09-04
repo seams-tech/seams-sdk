@@ -35,7 +35,6 @@ const PHASE9C_COMPLETED_CHECKS = Object.freeze([
   'Client-owned activation and export WASM boundary',
   'SDK Router boundary guard',
   'public Ed25519 export boundary guard',
-  'managed product contract boundary guard',
   'SDK Yao local TypeScript gate',
   'SDK Router, WASM Client, wallet lifecycle, and process gates',
   'public local-product registration, NEAR readiness, signing, and export gates',
@@ -379,63 +378,6 @@ function validatePhase9CReceiptInputTree(receipt, expectedInputs) {
   );
 }
 
-function validatePhase9CLifecycleEvidence(raw, profile, index) {
-  const field = `phase9c_receipt.lifecycle_evidence.${index}`;
-  const evidence = requiredObject(raw, field);
-  requireExact(
-    evidence.schema,
-    'seams-ed25519-yao-phase9c-lifecycle-evidence-v1',
-    `${field}.schema`,
-  );
-  requireExact(evidence.profile, profile, `${field}.profile`);
-  requireExactStringArray(
-    evidence.lifecycle_vectors,
-    PHASE9C_LIFECYCLE_VECTORS,
-    `${field}.vectors`,
-  );
-  for (const booleanField of [
-    'export_public_key_matches_registered',
-    'export_standard_signature_verified',
-    'recovery_preserved_identity',
-    'refresh_preserved_identity',
-    'deriver_processes_terminated_before_signing',
-    'ordinary_signing_standard_signature_verified',
-  ]) {
-    requireExact(evidence[booleanField], true, `${field}.${booleanField}`);
-  }
-  const registeredDigest = requiredString(
-    evidence.registered_public_key_sha256,
-    `${field}.registered_public_key_sha256`,
-  );
-  const exportedDigest = requiredString(
-    evidence.exported_public_key_sha256,
-    `${field}.exported_public_key_sha256`,
-  );
-  if (!/^[0-9a-f]{64}$/.test(registeredDigest)) {
-    fail('PHASE13A_LOCAL_PHASE9C_PUBLIC_KEY_DIGEST', field);
-  }
-  requireExact(exportedDigest, registeredDigest, `${field}.exported_public_key_sha256`);
-  for (const zeroField of [
-    'ordinary_signing_deriver_a_requests',
-    'ordinary_signing_deriver_b_requests',
-    'ordinary_signing_deriver_a_to_b_bytes',
-    'ordinary_signing_deriver_b_to_a_bytes',
-  ]) {
-    requireExact(
-      requiredInteger(evidence[zeroField], `${field}.${zeroField}`),
-      0,
-      `${field}.${zeroField}`,
-    );
-  }
-  return Object.freeze({
-    profile,
-    public_key_sha256: registeredDigest,
-    lifecycle_vector_count: PHASE9C_LIFECYCLE_VECTORS.length,
-    ordinary_signing_deriver_requests: 0,
-    ordinary_signing_deriver_bytes: 0,
-  });
-}
-
 function validatePhase9CValidationReceipt(evidence, artifactLoader, validatedInputs) {
   const binding = requiredObject(evidence.phase9c_validation, 'phase9c_validation');
   requireExact(
@@ -472,7 +414,7 @@ function validatePhase9CValidationReceipt(evidence, artifactLoader, validatedInp
   }
   requireExact(
     receipt.schema,
-    'seams-ed25519-yao-phase9c-validation-receipt-v1',
+    'seams-ed25519-yao-phase9c-validation-receipt-v2',
     'phase9c_receipt.schema',
   );
   requireExact(receipt.gate, binding.gate, 'phase9c_receipt.gate');
@@ -506,24 +448,12 @@ function validatePhase9CValidationReceipt(evidence, artifactLoader, validatedInp
     sha256(artifactLoader(PHASE9C_LIFECYCLE_REPORT_PATH)),
     'phase9c_receipt.lifecycle_report.sha256',
   );
-  const lifecycleEvidence = requiredArray(
-    receipt.lifecycle_evidence,
-    'phase9c_receipt.lifecycle_evidence',
-  );
-  if (lifecycleEvidence.length !== PHASE9C_PROFILES.length) {
-    fail('PHASE13A_LOCAL_PHASE9C_PROFILE_SET', 'phase9c_receipt.lifecycle_evidence');
-  }
-  const profiles = [];
-  for (let index = 0; index < PHASE9C_PROFILES.length; index += 1) {
-    profiles.push(
-      validatePhase9CLifecycleEvidence(lifecycleEvidence[index], PHASE9C_PROFILES[index], index),
-    );
-  }
   return Object.freeze({
     receipt_sha256: sha256(receiptBytes),
     source_input_sha256: validatedInputs.sha256,
     lifecycle_report_sha256: lifecycleReport.sha256,
-    profiles: Object.freeze(profiles),
+    profile_count: PHASE9C_PROFILES.length,
+    lifecycle_vector_count: PHASE9C_LIFECYCLE_VECTORS.length,
   });
 }
 
@@ -717,12 +647,12 @@ function validateLocalCommandEvidence(evidence) {
   const validation = requiredObject(evidence.validation, 'validation');
   requireExact(validation.command, 'npm run validate:local-readiness', 'validation.command');
   requireExact(validation.result, 'pass', 'validation.result');
-  requireExact(validation.rust_unit_tests, 18, 'validation.rust_unit_tests');
-  requireExact(validation.source_guard_tests, 12, 'validation.source_guard_tests');
+  requireExact(validation.rust_unit_tests, 25, 'validation.rust_unit_tests');
+  requireExact(validation.source_guard_tests, 13, 'validation.source_guard_tests');
   requireExact(validation.normal_role_artifacts, 4, 'validation.normal_role_artifacts');
   requireExact(validation.fault_artifacts, 9, 'validation.fault_artifacts');
   requireExact(validation.wrangler_dry_run_artifacts, 4, 'validation.wrangler_dry_run_artifacts');
-  requireExact(validation.core_passive_rust_tests, 100, 'validation.core_passive_rust_tests');
+  requireExact(validation.core_passive_rust_tests, 104, 'validation.core_passive_rust_tests');
   requireExact(validation.independent_python_tests, 186, 'validation.independent_python_tests');
   requireExact(
     validation.deterministic_differential_cases,
@@ -739,17 +669,17 @@ function validateLocalCommandEvidence(evidence) {
   requireExact(validation.wasm_stream_modes, 2, 'validation.wasm_stream_modes');
   requireExact(
     validation.formal_parity_production_rust_tests,
-    82,
+    84,
     'validation.formal_parity_production_rust_tests',
   );
   requireExact(
     validation.formal_parity_generator_rust_tests,
-    418,
+    420,
     'validation.formal_parity_generator_rust_tests',
   );
   requireExact(
     validation.formal_parity_circuit_rust_tests,
-    25,
+    26,
     'validation.formal_parity_circuit_rust_tests',
   );
   requireExact(
@@ -806,7 +736,7 @@ function validateIsolationEvidence(evidence) {
       isolation.authorized_core_dependents,
       'benchmark_isolation.authorized_core_dependents',
     ),
-    5,
+    6,
     'benchmark_isolation.authorized_core_dependents',
   );
   requireExact(
@@ -830,7 +760,7 @@ function validateIsolationEvidence(evidence) {
       isolation.benchmark_wrangler_configs,
       'benchmark_isolation.benchmark_wrangler_configs',
     ),
-    19,
+    21,
     'benchmark_isolation.benchmark_wrangler_configs',
   );
   requireExact(

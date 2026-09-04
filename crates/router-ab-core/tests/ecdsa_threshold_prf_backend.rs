@@ -1,3 +1,4 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use router_ab_core::{
@@ -24,12 +25,13 @@ fn context() -> DerivationContext {
 }
 
 fn context_with_epoch(epoch: &str) -> DerivationContext {
+    let application_binding_digest_b64u = Base64UrlUnpadded::encode_string(&[0x42; 32]);
     DerivationContext::new(
         RequestKind::Registration,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            application_binding_digest_b64u,
         )
         .expect("account scope"),
         RootShareEpoch::new(epoch).expect("epoch"),

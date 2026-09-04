@@ -4,9 +4,32 @@
 //! Ristretto, SHA-512, or production byte encoders. Cryptographic primitives
 //! remain trusted seams.
 
+#[cfg(verus_keep_ghost)]
+use vstd::arithmetic::div_mod::{
+    lemma_mul_mod_noop_right, lemma_sub_mod_noop, lemma_sub_mod_noop_right,
+};
+#[cfg(verus_keep_ghost)]
+use vstd::calc;
 use vstd::prelude::*;
 
+/// Canonical little-endian order of the Ristretto scalar field.
+pub const RISTRETTO_SCALAR_ORDER_LE_BYTES: [u8; 32] = [
+    0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+];
+
 verus! {
+
+/// Fixed Deriver A share identifier in the R120 two-party root policy.
+pub const TWO_PARTY_DERIVER_A_SHARE_ID: u16 = 1;
+/// Fixed Deriver B share identifier in the R120 two-party root policy.
+pub const TWO_PARTY_DERIVER_B_SHARE_ID: u16 = 2;
+/// Fixed public commitment wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_REFRESH_COMMITMENT_WIRE_LEN: usize = 34;
+/// Fixed recipient-specific contribution wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_REFRESH_CONTRIBUTION_WIRE_LEN: usize = 36;
+/// Fixed root-share knowledge-proof wire width used by the R120 refresh primitive.
+pub const TWO_PARTY_ROOT_SHARE_KNOWLEDGE_PROOF_WIRE_LEN: usize = 64;
 
 #[derive(PartialEq, Eq)]
 pub struct ThresholdPolicySpec {
@@ -30,6 +53,21 @@ pub struct SigningRootShareWireSpec {
 pub struct PrfPartialProofBundleIdsSpec {
     pub partial_id: u16,
     pub commitment_id: u16,
+}
+
+pub open spec fn fixed_two_party_policy_spec() -> ThresholdPolicySpec {
+    ThresholdPolicySpec {
+        threshold: 2nat,
+        share_count: 2nat,
+    }
+}
+
+pub open spec fn deriver_a_share_id_spec() -> u16 {
+    TWO_PARTY_DERIVER_A_SHARE_ID
+}
+
+pub open spec fn deriver_b_share_id_spec() -> u16 {
+    TWO_PARTY_DERIVER_B_SHARE_ID
 }
 
 pub open spec fn max_share_count_spec() -> nat {
@@ -59,6 +97,18 @@ pub open spec fn dleq_proof_wire_width_bytes_spec() -> nat {
 pub open spec fn proof_bundle_wire_width_bytes_spec() -> nat {
     partial_wire_width_bytes_spec() + share_commitment_wire_width_bytes_spec()
         + dleq_proof_wire_width_bytes_spec()
+}
+
+pub open spec fn two_party_refresh_commitment_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_REFRESH_COMMITMENT_WIRE_LEN as nat
+}
+
+pub open spec fn two_party_refresh_contribution_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_REFRESH_CONTRIBUTION_WIRE_LEN as nat
+}
+
+pub open spec fn two_party_root_share_knowledge_proof_wire_width_bytes_spec() -> nat {
+    TWO_PARTY_ROOT_SHARE_KNOWLEDGE_PROOF_WIRE_LEN as nat
 }
 
 pub open spec fn is_field_element_spec(value: u8) -> bool {
@@ -156,6 +206,63 @@ pub open spec fn validate_proof_bundle_id_binding_spec(
         && bundle.partial_id == bundle.commitment_id
 }
 
+pub open spec fn ristretto_scalar_order_spec() -> int {
+    7237005577332262213973186563042994240857116359379907606001950938285454250989int
+}
+
+pub open spec fn is_canonical_ristretto_scalar_spec(value: int) -> bool {
+    0int <= value < ristretto_scalar_order_spec()
+}
+
+pub open spec fn normalize_ristretto_scalar_spec(value: int) -> int {
+    value % ristretto_scalar_order_spec()
+}
+
+pub open spec fn two_party_refresh_delta_spec(rho_a: int, rho_b: int) -> int {
+    normalize_ristretto_scalar_spec(rho_a + rho_b)
+}
+
+pub open spec fn two_party_refresh_next_a_spec(
+    current_a: int,
+    rho_a: int,
+    rho_b: int,
+) -> int {
+    normalize_ristretto_scalar_spec(current_a + two_party_refresh_delta_spec(rho_a, rho_b))
+}
+
+pub open spec fn two_party_refresh_next_b_spec(
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+) -> int {
+    normalize_ristretto_scalar_spec(
+        current_b + 2int * two_party_refresh_delta_spec(rho_a, rho_b),
+    )
+}
+
+pub open spec fn two_party_root_spec(deriver_a: int, deriver_b: int) -> int {
+    normalize_ristretto_scalar_spec(2int * deriver_a - deriver_b)
+}
+
+pub open spec fn validate_two_party_refresh_spec(
+    current_a: int,
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+) -> bool {
+    is_canonical_ristretto_scalar_spec(current_a)
+        && is_canonical_ristretto_scalar_spec(current_b)
+        && is_canonical_ristretto_scalar_spec(rho_a)
+        && is_canonical_ristretto_scalar_spec(rho_b)
+        && current_a != 0int
+        && current_b != 0int
+        && rho_a != 0int
+        && rho_b != 0int
+        && two_party_refresh_delta_spec(rho_a, rho_b) != 0int
+        && two_party_refresh_next_a_spec(current_a, rho_a, rho_b) != 0int
+        && two_party_refresh_next_b_spec(current_b, rho_a, rho_b) != 0int
+}
+
 pub uninterp spec fn reconstruct_generated_root_2_spec(
     policy: ThresholdPolicySpec,
     root: u8,
@@ -233,6 +340,106 @@ pub proof fn wire_widths_are_fixed()
         share_commitment_wire_width_bytes_spec() == 34nat,
         dleq_proof_wire_width_bytes_spec() == 64nat,
         proof_bundle_wire_width_bytes_spec() == 164nat,
+        two_party_refresh_commitment_wire_width_bytes_spec() == 34nat,
+        two_party_refresh_contribution_wire_width_bytes_spec() == 36nat,
+        two_party_root_share_knowledge_proof_wire_width_bytes_spec() == 64nat,
+{
+}
+
+pub proof fn fixed_two_party_share_ids_are_canonical()
+    ensures
+        deriver_a_share_id_spec() == 1u16,
+        deriver_b_share_id_spec() == 2u16,
+        deriver_a_share_id_spec() != deriver_b_share_id_spec(),
+        validate_threshold_subset_2_spec(
+            fixed_two_party_policy_spec(),
+            deriver_a_share_id_spec(),
+            deriver_b_share_id_spec(),
+        ),
+{
+}
+
+pub proof fn two_party_refresh_preserves_root_mod_scalar_order(
+    current_a: int,
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+)
+    requires
+        is_canonical_ristretto_scalar_spec(current_a),
+        is_canonical_ristretto_scalar_spec(current_b),
+        is_canonical_ristretto_scalar_spec(rho_a),
+        is_canonical_ristretto_scalar_spec(rho_b),
+    ensures
+        two_party_root_spec(
+            two_party_refresh_next_a_spec(current_a, rho_a, rho_b),
+            two_party_refresh_next_b_spec(current_b, rho_a, rho_b),
+        ) == two_party_root_spec(current_a, current_b),
+{
+    let modulus = ristretto_scalar_order_spec();
+    let delta = two_party_refresh_delta_spec(rho_a, rho_b);
+    let raw_next_a = current_a + delta;
+    let raw_next_b = current_b + 2int * delta;
+    assert(modulus > 0int);
+    assert(
+        2int * (current_a + delta) - (current_b + 2int * delta)
+            == 2int * current_a - current_b
+    ) by (nonlinear_arith);
+    calc! {
+        (==)
+        (2int * (raw_next_a % modulus) - (raw_next_b % modulus)) % modulus; {
+            lemma_sub_mod_noop_right(2int * (raw_next_a % modulus), raw_next_b, modulus);
+        }
+        (2int * (raw_next_a % modulus) - raw_next_b) % modulus; {
+            lemma_sub_mod_noop(2int * (raw_next_a % modulus), raw_next_b, modulus);
+        }
+        ((2int * (raw_next_a % modulus)) % modulus - (raw_next_b % modulus)) % modulus; {
+            lemma_mul_mod_noop_right(2int, raw_next_a, modulus);
+        }
+        ((2int * raw_next_a) % modulus - (raw_next_b % modulus)) % modulus; {
+            lemma_sub_mod_noop(2int * raw_next_a, raw_next_b, modulus);
+        }
+        (2int * raw_next_a - raw_next_b) % modulus; {}
+        (2int * current_a - current_b) % modulus;
+    }
+}
+
+pub proof fn two_party_refresh_rejects_no_op(
+    current_a: int,
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+)
+    requires
+        two_party_refresh_delta_spec(rho_a, rho_b) == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho_a, rho_b),
+{
+}
+
+pub proof fn two_party_refresh_rejects_zero_next_a(
+    current_a: int,
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+)
+    requires
+        two_party_refresh_next_a_spec(current_a, rho_a, rho_b) == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho_a, rho_b),
+{
+}
+
+pub proof fn two_party_refresh_rejects_zero_next_b(
+    current_a: int,
+    current_b: int,
+    rho_a: int,
+    rho_b: int,
+)
+    requires
+        two_party_refresh_next_b_spec(current_b, rho_a, rho_b) == 0int,
+    ensures
+        !validate_two_party_refresh_spec(current_a, current_b, rho_a, rho_b),
 {
 }
 

@@ -348,7 +348,11 @@ class ExportExecutionRequestRun {
     try {
       return {
         kind: 'response',
-        value: await this.context.input.backend.executeExport(this.request, this.context.trace),
+        value: await this.context.input.backend.executeExport(
+          this.request,
+          _claim.admissionRequest,
+          this.context.trace,
+        ),
       };
     } catch (error: unknown) {
       return { kind: 'uncertain', message: errorMessage(error) };

@@ -162,6 +162,24 @@ function publicAEndpoint(environment) {
   };
 }
 
+function publicRoute(hostnameValue, scriptNameValue, name) {
+  if (!hostnameValue.endsWith(".workers.dev")) {
+    return Object.freeze({ kind: "custom-domain" });
+  }
+  const labels = hostnameValue.split(".");
+  if (
+    labels.length !== 4 ||
+    labels[0] !== scriptNameValue ||
+    labels[2] !== "workers" ||
+    labels[3] !== "dev"
+  ) {
+    throw new BoundaryError(
+      `${name} workers.dev hostname must start with the exact benchmark script name`,
+    );
+  }
+  return Object.freeze({ kind: "workers-dev", accountSubdomain: labels[1] });
+}
+
 function crossAccountBEndpoint(environment, aHostname) {
   const bHostname = hostname(environment, "YAOS_AB_B_HOSTNAME");
   if (bHostname === aHostname) {
@@ -198,12 +216,22 @@ export function parseDeploymentEnvironment(environment) {
   const aProfile = profile(environment, "YAOS_AB_A_PROFILE");
   const bProfile = profile(environment, "YAOS_AB_B_PROFILE");
   assertAccountTopology(topology, aAccount, bAccount, aProfile, bProfile);
+  const fixedScriptNames = FIXED_SCRIPT_NAMES[topology];
+  const aScriptName = scriptName(
+    environment,
+    "YAOS_AB_A_SCRIPT_NAME",
+    fixedScriptNames.a,
+  );
+  const bScriptName = scriptName(
+    environment,
+    "YAOS_AB_B_SCRIPT_NAME",
+    fixedScriptNames.b,
+  );
   const aPublic = publicAEndpoint(environment);
   const bPublic =
     topology === "two-account"
       ? crossAccountBEndpoint(environment, aPublic.hostname)
       : undefined;
-  const fixedScriptNames = FIXED_SCRIPT_NAMES[topology];
   return Object.freeze({
     topology,
     expectedTopologyLabel:
@@ -213,24 +241,29 @@ export function parseDeploymentEnvironment(environment) {
     a: Object.freeze({
       accountId: aAccount,
       profile: aProfile,
-      scriptName: scriptName(
-        environment,
-        "YAOS_AB_A_SCRIPT_NAME",
-        fixedScriptNames.a,
-      ),
+      scriptName: aScriptName,
       publicHostname: aPublic.hostname,
       publicEndpoint: aPublic.endpoint,
+      publicRoute: publicRoute(
+        aPublic.hostname,
+        aScriptName,
+        "YAOS_AB_A_PUBLIC_ENDPOINT",
+      ),
     }),
     b: Object.freeze({
       accountId: bAccount,
       profile: bProfile,
-      scriptName: scriptName(
-        environment,
-        "YAOS_AB_B_SCRIPT_NAME",
-        fixedScriptNames.b,
-      ),
+      scriptName: bScriptName,
       publicHostname: bPublic?.hostname,
       publicEndpoint: bPublic?.endpoint,
+      publicRoute:
+        bPublic === undefined
+          ? undefined
+          : publicRoute(
+              bPublic.hostname,
+              bScriptName,
+              "YAOS_AB_B_WEBSOCKET_ENDPOINT",
+            ),
     }),
     sampleCount: sampleCount(environment),
     regionLabel: regionLabel(environment),

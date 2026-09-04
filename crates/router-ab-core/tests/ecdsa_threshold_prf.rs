@@ -1,3 +1,4 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use router_ab_core::{
     plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
     AccountScope, DerivationContext, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1,
@@ -10,12 +11,13 @@ use router_ab_core::{
 };
 
 fn context() -> DerivationContext {
+    let application_binding_digest_b64u = Base64UrlUnpadded::encode_string(&[0x42; 32]);
     DerivationContext::new(
         RequestKind::Registration,
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            application_binding_digest_b64u,
         )
         .expect("account scope"),
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -282,9 +284,13 @@ fn purpose_binding_plan_separates_client_and_server_outputs() {
         server_plan.threshold_prf_purpose_label,
         "router-ab/x_server_base/v1"
     );
-    assert_ne!(
+    assert_eq!(
         client_plan.threshold_prf_context_digest,
         server_plan.threshold_prf_context_digest
+    );
+    assert_eq!(
+        client_plan.threshold_prf_context_bytes,
+        server_plan.threshold_prf_context_bytes
     );
 }
 
@@ -320,7 +326,7 @@ fn partial_verification_plan_rejects_transcript_mismatch() {
         AccountScope::new(
             "near-testnet",
             "alice.testnet",
-            "ed25519:11111111111111111111111111111111",
+            Base64UrlUnpadded::encode_string(&[0x42; 32]),
         )
         .expect("account scope"),
         RootShareEpoch::new("epoch-1").expect("epoch"),

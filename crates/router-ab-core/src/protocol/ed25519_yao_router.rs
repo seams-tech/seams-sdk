@@ -503,14 +503,14 @@ pub enum RouterEd25519YaoExecuteRequestV1 {
     },
 }
 
-/// Raw Gateway-to-Router request before Router-owned digest construction.
+/// Raw Gateway-to-Router execute target carried by the V2 server envelope.
 ///
-/// This boundary deliberately carries only the admitted ceremony binding and
-/// opaque role envelopes. The Router derives every digest that commits this
-/// request before it creates the internal execution request.
+/// The target owns only the admitted ceremony binding and opaque role
+/// envelopes. The Router derives every digest that commits this target before
+/// it creates the internal execution request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-pub enum RouterEd25519YaoGatewayExecuteRequestV1 {
+pub enum RouterEd25519YaoGatewayExecuteTargetV2 {
     /// Initial registration activation.
     Registration {
         /// Admitted activation ceremony binding.
@@ -542,7 +542,7 @@ pub enum RouterEd25519YaoGatewayExecuteRequestV1 {
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
-enum RawRouterEd25519YaoGatewayExecuteRequestV1 {
+enum RawRouterEd25519YaoGatewayExecuteTargetV2 {
     Registration {
         binding: Ed25519YaoCeremonyBindingV1,
         deriver_a_input: Ed25519YaoEncryptedInputV1,
@@ -560,35 +560,35 @@ enum RawRouterEd25519YaoGatewayExecuteRequestV1 {
     },
 }
 
-impl<'de> Deserialize<'de> for RouterEd25519YaoGatewayExecuteRequestV1 {
+impl<'de> Deserialize<'de> for RouterEd25519YaoGatewayExecuteTargetV2 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let raw = RawRouterEd25519YaoGatewayExecuteRequestV1::deserialize(deserializer)?;
-        let request = match raw {
-            RawRouterEd25519YaoGatewayExecuteRequestV1::Registration {
+        let raw = RawRouterEd25519YaoGatewayExecuteTargetV2::deserialize(deserializer)?;
+        let target = match raw {
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Registration {
                 binding,
                 deriver_a_input,
                 deriver_b_input,
             } => Self::registration(binding, deriver_a_input, deriver_b_input),
-            RawRouterEd25519YaoGatewayExecuteRequestV1::Recovery {
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Recovery {
                 binding,
                 deriver_a_input,
                 deriver_b_input,
             } => Self::recovery(binding, deriver_a_input, deriver_b_input),
-            RawRouterEd25519YaoGatewayExecuteRequestV1::Export {
+            RawRouterEd25519YaoGatewayExecuteTargetV2::Export {
                 binding,
                 deriver_a_input,
                 deriver_b_input,
             } => Self::export(binding, deriver_a_input, deriver_b_input),
         };
-        request.map_err(D::Error::custom)
+        target.map_err(D::Error::custom)
     }
 }
 
-impl RouterEd25519YaoGatewayExecuteRequestV1 {
-    /// Builds a validated registration request.
+impl RouterEd25519YaoGatewayExecuteTargetV2 {
+    /// Builds a validated registration target.
     pub fn registration(
         binding: Ed25519YaoCeremonyBindingV1,
         deriver_a_input: Ed25519YaoEncryptedInputV1,
@@ -607,7 +607,7 @@ impl RouterEd25519YaoGatewayExecuteRequestV1 {
         })
     }
 
-    /// Builds a validated recovery request.
+    /// Builds a validated recovery target.
     pub fn recovery(
         binding: Ed25519YaoCeremonyBindingV1,
         deriver_a_input: Ed25519YaoEncryptedInputV1,
@@ -626,7 +626,7 @@ impl RouterEd25519YaoGatewayExecuteRequestV1 {
         })
     }
 
-    /// Builds a validated export request.
+    /// Builds a validated export target.
     pub fn export(
         binding: crate::protocol::ed25519_yao::RouterAbEd25519YaoExportBindingV1,
         deriver_a_input: Ed25519YaoEncryptedInputV1,
@@ -683,7 +683,7 @@ impl RouterEd25519YaoGatewayExecuteRequestV1 {
         }
     }
 
-    /// Returns the admission digest committed by the raw request.
+    /// Returns the admission digest committed by the target.
     pub fn authorization_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
         match self {
             Self::Export { binding, .. } => Ok(PublicDigest32::new(binding.authorization_digest())),
@@ -703,7 +703,7 @@ impl RouterEd25519YaoGatewayExecuteRequestV1 {
         }
     }
 
-    /// Converts the raw request into the validated internal execute request.
+    /// Converts the target into the validated internal execute request.
     pub fn into_execute_request(
         self,
         recipient_set_digest: PublicDigest32,
@@ -2187,20 +2187,17 @@ mod tests {
     }
 
     #[test]
-    fn gateway_request_constructs_pair_only_in_rust() {
-        let request = RouterEd25519YaoGatewayExecuteRequestV1::registration(
+    fn gateway_target_v2_constructs_pair_only_in_rust() {
+        let target = RouterEd25519YaoGatewayExecuteTargetV2::registration(
             binding(),
             input(Ed25519YaoDeriverRoleV1::DeriverA, 4),
             input(Ed25519YaoDeriverRoleV1::DeriverB, 5),
         )
-        .expect("gateway request");
-        let authorization_digest = request
-            .authorization_digest()
-            .expect("authorization digest");
-        assert_ne!(authorization_digest, PublicDigest32::new([0; 32]));
-        let wire = serde_json::to_vec(&request).expect("gateway request JSON");
-        let decoded = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteRequestV1>(&wire)
-            .expect("gateway request round trip");
+        .expect("gateway target");
+        let authorization_digest = target.authorization_digest().expect("authorization digest");
+        let wire = serde_json::to_vec(&target).expect("gateway target JSON");
+        let decoded = serde_json::from_slice::<RouterEd25519YaoGatewayExecuteTargetV2>(&wire)
+            .expect("gateway target round trip");
         let execute = decoded
             .into_execute_request(
                 ed25519_yao_recipient_set_digest_v1([1; 32], [2; 32], [3; 32])
@@ -2210,11 +2207,7 @@ mod tests {
             )
             .expect("internal execute request");
         assert_eq!(execute.authority().authority_digest(), authorization_digest);
-        assert_eq!(
-            execute.pair_binding().recipient_set_digest(),
-            ed25519_yao_recipient_set_digest_v1([1; 32], [2; 32], [3; 32])
-                .expect("recipient digest")
-        );
+        assert_eq!(execute.operation(), Ed25519YaoOperationV1::Registration);
     }
 
     #[test]

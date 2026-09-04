@@ -8,11 +8,11 @@ use router_ab_core::{
     RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use router_ab_dev::{
-    build_local_activation_deriver_a_v1, build_local_activation_deriver_b_v1,
+    build_local_activation_deriver_a_with_server_v1,
+    build_local_activation_deriver_b_with_server_v1,
     generate_local_ed25519_yao_recipient_key_pair_v1,
     open_local_ed25519_yao_activation_deriver_a_input_v1,
     open_local_ed25519_yao_activation_deriver_b_input_v1, seal_local_ed25519_yao_package_v1,
-    LocalDeriverAWorkerConfigV1, LocalDeriverBWorkerConfigV1,
 };
 use router_ab_ed25519_yao::{
     relay::{
@@ -26,12 +26,17 @@ use router_ab_ed25519_yao_client::{
     complete_client_activation_v1, import_activated_client_material_v1,
     import_activated_client_under_custody_seed_v1,
     prepare_client_registration_source_preserving_with_root_v1,
-    prepare_client_registration_with_root_v1,
-    seal_activated_client_under_custody_seed_v1, ActivatedClientV1, ClientActivationEntropyV1,
-    ClientActivationError, ClientActivationSourcePreservingEntropyV1, ClientActivationStateV1,
-    LocalMaterialError, LocalMaterialSealDomainV1,
+    prepare_client_registration_with_root_v1, seal_activated_client_under_custody_seed_v1,
+    ActivatedClientV1, ClientActivationEntropyV1, ClientActivationError,
+    ClientActivationSourcePreservingEntropyV1, ClientActivationStateV1, LocalMaterialError,
+    LocalMaterialSealDomainV1,
 };
-use signer_core::ed25519_yao_derivation::Ed25519YaoClientRootV1;
+use signer_core::ed25519_yao_derivation::{
+    derive_ed25519_yao_deriver_a_server_contribution_v1,
+    derive_ed25519_yao_deriver_b_server_contribution_v1, Ed25519YaoClientRootV1,
+    Ed25519YaoDeriverADerivationRootV1, Ed25519YaoDeriverAServerContributionV1,
+    Ed25519YaoDeriverBDerivationRootV1, Ed25519YaoDeriverBServerContributionV1,
+};
 use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 #[test]
@@ -103,7 +108,10 @@ fn source_preserving_registration_seals_to_the_supplied_target_recipient() {
     )
     .expect("open Deriver B input");
     assert_eq!(request_a.recipients, request_b.recipients);
-    assert_eq!(request_a.recipients.client_public_key, target_client_recipient);
+    assert_eq!(
+        request_a.recipients.client_public_key,
+        target_client_recipient
+    );
     assert_eq!(
         request_a.recipients.signing_worker_public_key,
         signing_worker_recipient.public_key
@@ -220,9 +228,10 @@ fn run_client_activation(case: SeedRootActivationCase) -> ClientActivationCircui
         signing_worker_recipient.public_key
     );
 
-    let (_, role_a) = build_local_activation_deriver_a_v1(&deriver_a_config(), request_a)
+    let (server_a, server_b) = server_contributions(&context);
+    let (_, role_a) = build_local_activation_deriver_a_with_server_v1(request_a, server_a)
         .expect("build Deriver A");
-    let (_, role_b) = build_local_activation_deriver_b_v1(&deriver_b_config(), request_b)
+    let (_, role_b) = build_local_activation_deriver_b_with_server_v1(request_b, server_b)
         .expect("build Deriver B");
     let (completion_a, completion_b) = run_roles(binding.session_id.into_bytes(), role_a, role_b);
     let transcript = completion_a.final_transcript();
@@ -340,34 +349,23 @@ fn material_activation(session_byte: u8) -> MpcMaterialActivationRefV1 {
     .expect("material activation")
 }
 
-fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
-    LocalDeriverAWorkerConfigV1 {
-        deriver_a_url: "http://127.0.0.1:1".to_owned(),
-        deriver_b_url: "http://127.0.0.1:2".to_owned(),
-        envelope_hpke_private_key: "local-test".to_owned(),
-        root_share_wire_secret: "local-test".to_owned(),
-        ed25519_yao_derivation_root_hex: "22".repeat(32),
-        peer_signing_key: "local-test".to_owned(),
-        deriver_a_peer_verifying_key: "local-test".to_owned(),
-        deriver_b_peer_verifying_key: "local-test".to_owned(),
-        role_private_storage_path: "/tmp/local-test-a-root".to_owned(),
-        sealed_root_shares_path: "/tmp/local-test-a-sealed".to_owned(),
-    }
-}
-
-fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
-    LocalDeriverBWorkerConfigV1 {
-        deriver_b_url: "http://127.0.0.1:2".to_owned(),
-        deriver_a_url: "http://127.0.0.1:1".to_owned(),
-        envelope_hpke_private_key: "local-test".to_owned(),
-        root_share_wire_secret: "local-test".to_owned(),
-        ed25519_yao_derivation_root_hex: "33".repeat(32),
-        peer_signing_key: "local-test".to_owned(),
-        deriver_a_peer_verifying_key: "local-test".to_owned(),
-        deriver_b_peer_verifying_key: "local-test".to_owned(),
-        role_private_storage_path: "/tmp/local-test-b-root".to_owned(),
-        sealed_root_shares_path: "/tmp/local-test-b-sealed".to_owned(),
-    }
+fn server_contributions(
+    context: &signer_core::ed25519_yao_derivation::Ed25519YaoStableKeyDerivationContextV1,
+) -> (
+    Ed25519YaoDeriverAServerContributionV1,
+    Ed25519YaoDeriverBServerContributionV1,
+) {
+    let server_a = derive_ed25519_yao_deriver_a_server_contribution_v1(
+        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes([0x22; 32]),
+        context,
+    )
+    .expect("Deriver A server contribution");
+    let server_b = derive_ed25519_yao_deriver_b_server_contribution_v1(
+        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes([0x33; 32]),
+        context,
+    )
+    .expect("Deriver B server contribution");
+    (server_a, server_b)
 }
 
 fn run_roles(

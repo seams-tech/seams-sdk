@@ -73,6 +73,7 @@ import {
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { buildEd25519YaoCapabilityFixture } from '../../helpers/ed25519YaoCapabilityFixtures';
+import { FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE } from '../../helpers/routerAbSigningRuntimeTestUtils';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../../helpers/sqliteD1';
 import { applySignerMigrations } from './cloudflareD1RouterApiAuthService.fixtures';
 
@@ -109,9 +110,7 @@ export type FinalizeConvergenceFault =
   | 'finalize_claim_response_loss'
   | 'finalize_completion_response_loss';
 
-type YaoFault =
-  | 'activation_consume_response_loss'
-  | 'capability_install_response_loss';
+type YaoFault = 'activation_consume_response_loss' | 'capability_install_response_loss';
 
 function bytes(seed: number, length = 32): number[] {
   return new Array<number>(length).fill(seed);
@@ -527,7 +526,7 @@ class UnusedEcdsaStrictRegistration implements RouterAbEcdsaStrictRegistrationPo
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 
-  async register(): Promise<never> {
+  async registerWithTenantRoot(): Promise<never> {
     throw new Error('ECDSA is outside the finalize convergence fixture');
   }
 
@@ -733,9 +732,7 @@ function buildCeremony(input: {
     foundingWalletAuthorityId: parsedDomainValue(
       parseWalletAuthorityId('wallet-authority:registration-finalize-convergence'),
     ),
-    foundingDeviceId: parsedDomainValue(
-      parseDeviceId('device:registration-finalize-convergence'),
-    ),
+    foundingDeviceId: parsedDomainValue(parseDeviceId('device:registration-finalize-convergence')),
     foundingWalletAuthMethodId,
     intent,
     digestB64u: 'finalize-convergence-intent-digest',
@@ -995,6 +992,7 @@ async function createFinalizeConvergenceHarnessForMode(
     ...TEST_SCOPE,
     ed25519YaoProductRegistration: yao.runtime,
     ecdsaStrictRegistration: new UnusedEcdsaStrictRegistration(),
+    tenantRootCustodyLineage: FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
     ...(mode.kind === 'sponsored'
       ? {
           relayerAccount: RELAYER_ACCOUNT_ID,

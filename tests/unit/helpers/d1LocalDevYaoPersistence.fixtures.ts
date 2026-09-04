@@ -1,13 +1,21 @@
 import {
   parseWalletAuthMethodId,
   parseWalletId,
+  parseWalletKeyId,
+  parseWalletRecoveryOperationId,
   parseWebAuthnRpId,
 } from '@shared/utils/domainIds';
+import {
+  parsePrincipalId,
+  parseTenantId,
+  parseWalletSessionMintId,
+} from '@shared/authorization/capabilityKinds';
 import {
   deriveRouterAbEd25519YaoExportAuthorizationDigestV1,
   deriveRouterAbEd25519YaoExportConfirmationDigestV1,
   deriveRouterAbEd25519YaoRuntimePolicyBindingV1,
   deriveRouterAbEd25519YaoStableContextBindingV1,
+  ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1,
   parseRouterAbEd25519YaoExportAdmissionReceiptV1,
   parseRouterAbEd25519YaoExportAdmissionRequestV1,
   parseRouterAbEd25519YaoExportExecuteRequestV1,
@@ -27,31 +35,72 @@ import {
   type RouterAbEd25519YaoExportExecuteRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
+  buildWalletAuthMethodRecordV2,
   registrationIntentGrantFromString,
   walletIdFromString,
   type RegistrationIntentV1,
+  type WalletAuthMethodRecordV2,
 } from '@shared/utils/registrationIntent';
+import { sha256HexUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { parseEd25519PublicKeyB64u } from '@shared/passkey-custody/primitives';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import {
+  buildWalletRecoveryEnvelopeSetRecord,
+  buildWalletRecoveryManifestKekWrap,
+  deriveWalletRecoveryKeyLifecycleId,
+  parseRecoveryCodeLocatorV1,
+  parseRecoveryCodeReservationId,
+  parseWalletRecoveryEnvelopeSetRecord,
+} from '@shared/wallet-recovery';
+import { buildWalletRecoveryBackupAcknowledgementV1 } from '@shared/wallet-recovery/backupAcknowledgement';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import { D1WalletAuthMethodStore } from '../../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import type { CfExecutionContext } from '../../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
-import { createEd25519SessionAdapter } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import type { D1DatabaseLike } from '../../../packages/wallet-server/src/storage/tenantRoute';
 import type { CloudflareServiceBindingFetcher } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/routerAbServiceBindings';
 import localD1DevWorker from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import { AuthorizationService } from '../../../packages/wallet-server/src/authorization/service';
+import { capabilityPolicyPort } from '../../../packages/wallet-server/src/authorization/capabilityPolicy';
+import { CloudflareD1AuthorizationStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { prepareD1WalletAuthorityPutStatement } from '../../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthorityStore';
+import { createCloudflareD1RouterApiAuthService } from '../../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { resolveWalletSessionAuthorizationV2Admission } from '../../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
+import { CloudflareD1WalletCustodyCommitStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { CloudflareD1WebAuthnStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 import {
-  UnavailableRouterAbEd25519YaoRegistrationBackend,
-} from './routerAbEd25519YaoRegistrationBridge.fixtures';
-import { buildRouterAbEd25519WalletSessionClaimsFixture } from './routerAbEd25519WalletSessionClaims.fixtures';
+  buildWebAuthnRecoveryContinuityAnchorRecord,
+  type WebAuthnRecoveryRegistrationChallengeRecord,
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords';
+import { resolveWalletRecoveryKeyManifestV1 } from '../../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryKeyManifest';
+import { UnavailableRouterAbEd25519YaoRegistrationBackend } from './routerAbEd25519YaoRegistrationBridge.fixtures';
+import {
+  buildLinkedDeviceManagementAuthorityFixture,
+  fullOwnerPermissionsForManagementFixture,
+} from './linkedDeviceManagement.fixtures';
+import { insertEmailOtpEnrollment } from './cloudflareD1RouterApiAuthService.fixtures';
+import {
+  FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
+  SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  passkeyCustodyEnvelope,
+  rawEmailOtpFactor,
+  rawWalletCustodySeedBinding,
+  rawWalletRecoveryCodeLocators,
+  rawWalletRecoveryEnvelopeSet,
+} from './passkeyCustodyEnvelope.fixtures';
 
 const NAMESPACE = 'seams-local-yao-persistence';
 const ORG_ID = 'org_abcdefgh1234';
@@ -72,6 +121,7 @@ const LOCAL_CEREMONY_PRIVATE_JWK = {
 } as const;
 const LOCAL_ORIGIN = 'http://127.0.0.1:8787';
 const EMAIL_PROVIDER_SUBJECT_ID = 'google:local-yao-user';
+const EMAIL_ADDRESS = 'local-yao@example.test';
 
 function localMaterialActivation(lifecycleBinding: string) {
   return {
@@ -90,6 +140,10 @@ type RegistrationBinding = RouterAbEd25519YaoActivationBindingV1<'registration'>
 type RegistrationExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
 type RecoveryBinding = RouterAbEd25519YaoActivationBindingV1<'recovery'>;
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
+type ActiveEmailOtpWalletAuthMethodRecordV2 = Extract<
+  WalletAuthMethodRecordV2,
+  { readonly kind: 'email_otp'; readonly status: 'active' }
+>;
 
 class UnsupportedServiceBinding implements CloudflareServiceBindingFetcher {
   async fetch(): Promise<Response> {
@@ -193,27 +247,29 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
   ):
     | { readonly ok: true; readonly value: Response }
     | { readonly ok: false; readonly value: Response } {
-    switch (body.operation) {
+    const target = executeTarget(body);
+    const executeRequest = {
+      binding: target.binding,
+      deriver_a_input: target.deriver_a_input,
+      deriver_b_input: target.deriver_b_input,
+    };
+    switch (executeOperation(target)) {
       case 'registration': {
-        const execution = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution =
+          parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.registrationExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'recovery': {
-        const execution = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution =
+          parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.recoveryExecuteCalls += 1;
         return { ok: true, value: this.activationSuccessResponse(execution.value.binding) };
       }
       case 'export': {
-        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(
-          executeProtocolFields(body),
-        );
+        const execution = parseRouterAbEd25519YaoExportExecuteRequestV1(executeRequest);
         if (!execution.ok) return invalidRouterRequest(execution.code);
         this.exportExecuteCalls += 1;
         return { ok: true, value: exportSuccessResponse(execution.value) };
@@ -254,12 +310,16 @@ export class LocalYaoRouterBindingFixture implements CloudflareServiceBindingFet
   }
 }
 
-function executeProtocolFields(body: Record<string, unknown>) {
-  return {
-    binding: body.binding,
-    deriver_a_input: body.deriver_a_input,
-    deriver_b_input: body.deriver_b_input,
-  };
+function executeTarget(body: Record<string, unknown>): Record<string, unknown> {
+  return requireRecord(body.target, 'Router execute request target envelope');
+}
+
+function executeOperation(target: Record<string, unknown>): 'registration' | 'recovery' | 'export' {
+  const operation = target.operation;
+  if (operation === 'registration' || operation === 'recovery' || operation === 'export') {
+    return operation;
+  }
+  throw new Error('Router execute operation is invalid');
 }
 
 function invalidRouterRequest(code: string): { readonly ok: false; readonly value: Response } {
@@ -282,9 +342,12 @@ export function createLocalYaoWorkerEnv(input: {
     SEAMS_LOCAL_CONSOLE_ORG_ID: ORG_ID,
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: PROJECT_ID,
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: ENV_ID,
+    LINKED_DEVICE_WEBAUTHN_RP_ID: 'wallet.local',
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
     SIGNING_WORKER_ID,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_KEY_ID: 'local-yao-grant-authority-v1',
+    TENANT_ROOT_GRANT_AUTHORITY_SIGNING_SEED: 'ERERERERERERERERERERERERERERERERERERERERERE',
     ROUTER_AB_CEREMONY_JWT_ISSUER: LOCAL_CEREMONY_ISSUER,
     ROUTER_AB_CEREMONY_JWT_AUDIENCE: LOCAL_CEREMONY_AUDIENCE,
     ROUTER_AB_CEREMONY_JWT_KEY_ID: LOCAL_CEREMONY_KEY_ID,
@@ -387,11 +450,20 @@ export async function buildLocalYaoExistingWalletFixture(input: {
 }) {
   const capability = await buildLocalRegistrationCapability();
   await persistLocalCapability(input.signerDatabase, capability);
-  const token = await issueLocalWalletSessionToken(capability);
-  const recoveryAdmission = localRecoveryAdmission(capability, input.lifecycleId);
-  const exportAdmission = await localExportAdmission(capability, `${input.lifecycleId}-export`);
+  const session = await issueLocalWalletSessionCredential({
+    database: input.signerDatabase,
+    capability,
+  });
+  const recovery = await prepareLocalYaoRecoveryAdmission({
+    database: input.signerDatabase,
+    capability,
+    authority: session.authority,
+    authMethod: session.authMethod,
+    label: input.lifecycleId,
+  });
+  const exportProtocol = await localExportAdmission(capability);
   return {
-    token,
+    token: session.token,
     capability,
     warmBootstrap: requireParsed(
       parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
@@ -406,14 +478,70 @@ export async function buildLocalYaoExistingWalletFixture(input: {
         participantIds: capability.admissionRequest.participant_ids,
       }),
     ),
-    recoveryAdmission,
-    exportAdmission: {
-      protocol: exportAdmission,
-      authorization: {
-        kind: 'email_otp_factor' as const,
-        providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID,
-      },
+    recoveryAdmission: recovery.admission,
+    recoveryChallengeId: recovery.challengeId,
+    exportProtocol,
+    emailOtp: {
+      providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID,
+      walletAuthMethodId: session.walletAuthMethodId,
     },
+  };
+}
+
+export async function createLocalYaoEmailOtpExportAuthorization(input: {
+  readonly env: LocalD1DevWorkerEnv;
+  readonly signerDatabase: D1DatabaseLike;
+  readonly token: string;
+  readonly walletId: string;
+  readonly providerSubjectId: string;
+  readonly walletAuthMethodId: string;
+}) {
+  const response = await callLocalYaoWorker({
+    env: input.env,
+    path: '/wallet/email-otp/challenge',
+    body: {
+      walletId: input.walletId,
+      walletAuthMethodId: input.walletAuthMethodId,
+      otpChannel: 'email_otp',
+      operation: 'export_key',
+    },
+    grant: input.token,
+    origin: LOCAL_ORIGIN,
+  });
+  if (!response.ok) {
+    throw new Error(`local Yao Email OTP export challenge failed: ${await response.text()}`);
+  }
+  const body = requireRecord(await response.json(), 'Email OTP export challenge response');
+  const challenge = requireRecord(body.challenge, 'Email OTP export challenge');
+  const challengeId = String(challenge.challengeId || '').trim();
+  const walletAuthMethodId = String(body.walletAuthMethodId || '').trim();
+  if (!challengeId || walletAuthMethodId !== input.walletAuthMethodId) {
+    throw new Error('local Yao Email OTP export challenge identity changed');
+  }
+  const service = createCloudflareD1RouterApiAuthService({
+    database: input.signerDatabase,
+    namespace: NAMESPACE,
+    orgId: ORG_ID,
+    projectId: PROJECT_ID,
+    envId: ENV_ID,
+    accountIdDerivationSecret: 'local-yao-account-id-secret',
+    emailOtpDeliveryMode: 'dev_d1_outbox',
+    emailOtpDevOutboxEnabled: true,
+    ecdsaStrictRegistration: new SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort(),
+    tenantRootCustodyLineage: FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
+  });
+  const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
+    challengeId,
+    userId: input.providerSubjectId,
+    walletId: input.walletId,
+  });
+  if (!outbox.ok) throw new Error(outbox.message);
+  return {
+    kind: 'email_otp_factor' as const,
+    providerSubjectId: input.providerSubjectId,
+    walletAuthMethodId,
+    challengeId,
+    otpCode: outbox.otpCode,
   };
 }
 
@@ -446,9 +574,8 @@ export function exportExecuteFromAdmission(
   rawAdmissionReceipt: unknown,
   ciphertextSeed = 39,
 ): RouterAbEd25519YaoExportExecuteRequestV1 {
-  const receipt = requireParsed(
-    parseRouterAbEd25519YaoExportAdmissionReceiptV1(rawAdmissionReceipt),
-  );
+  const envelope = requireRecord(rawAdmissionReceipt, 'Export admission response');
+  const receipt = requireParsed(parseRouterAbEd25519YaoExportAdmissionReceiptV1(envelope.protocol));
   const binding = receipt.binding;
   return requireParsed(
     parseRouterAbEd25519YaoExportExecuteRequestV1({
@@ -480,14 +607,16 @@ export async function callLocalYaoWorker(input: {
   readonly env: LocalD1DevWorkerEnv;
   readonly path: string;
   readonly body: unknown;
-  readonly grant: string;
+  readonly grant?: string;
   readonly origin?: string;
+  readonly recoveryChallengeId?: string;
 }): Promise<Response> {
-  const headers = new Headers({
-    authorization: `Bearer ${input.grant}`,
-    'content-type': 'application/json',
-  });
+  const headers = new Headers({ 'content-type': 'application/json' });
+  if (input.grant) headers.set('authorization', `Bearer ${input.grant}`);
   if (input.origin) headers.set('origin', input.origin);
+  if (input.recoveryChallengeId) {
+    headers.set(ROUTER_AB_ED25519_YAO_RECOVERY_CHALLENGE_ID_HEADER_V1, input.recoveryChallengeId);
+  }
   return await localD1DevWorker.fetch(
     new Request(`http://127.0.0.1:8787/relay${input.path}`, {
       method: 'POST',
@@ -673,76 +802,306 @@ async function persistLocalCapability(
   );
 }
 
-async function issueLocalWalletSessionToken(
-  capability: WalletEd25519YaoActiveCapabilityRecord,
-): Promise<string> {
-  const authority = buildEmailOtpWalletAuthAuthority({
+async function issueLocalWalletSessionCredential(input: {
+  readonly database: D1DatabaseLike;
+  readonly capability: WalletEd25519YaoActiveCapabilityRecord;
+}): Promise<{
+  readonly token: string;
+  readonly walletAuthMethodId: string;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: ActiveEmailOtpWalletAuthMethodRecordV2;
+}> {
+  const emailHashHex = await sha256HexUtf8(EMAIL_ADDRESS);
+  const factorAuthority = buildEmailOtpWalletAuthAuthority({
     walletId: localWalletId(),
     provider: 'google',
     providerUserId: EMAIL_PROVIDER_SUBJECT_ID,
-    emailHashHex: 'ab'.repeat(32),
+    emailHashHex,
   });
-  const claims = buildRouterAbEd25519WalletSessionClaimsFixture({
-    walletId: localWalletId(),
-    nearAccountId: capability.nearAccountId,
-    nearEd25519SigningKeyId:
-      capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
-    thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
-    authorizationId: localWalletAuthorizationId(),
-    walletSessionId: localWalletSessionId(),
-    quotaId: localWalletSessionQuotaId(),
-    relayerKeyId: SIGNING_WORKER_ID,
-    authority,
-    runtimePolicyScope: localRuntimePolicyScope(),
-    thresholdExpiresAtMs: Date.now() + 120_000,
-    participantIds: [1, 2],
-    normalSigning: {
-      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-      signingWorkerId: SIGNING_WORKER_ID,
+  const walletKeyId = parseWalletKeyId('wallet-key:local-existing-yao');
+  if (!walletKeyId.ok) throw new Error(walletKeyId.error.message);
+  const registeredPublicKeyB64u = parseEd25519PublicKeyB64u(
+    base64UrlEncode(
+      Uint8Array.from(input.capability.activationResult.public_receipt.registered_public_key),
+    ),
+  );
+  const records = await buildLinkedDeviceManagementAuthorityFixture({
+    label: 'local-existing-yao',
+    permissions: fullOwnerPermissionsForManagementFixture(),
+    provenance: 'wallet_registration',
+    keyFamily: 'ed25519',
+    materialActivation: routerAbMpcMaterialActivationRefFromWire(
+      input.capability.admissionRequest.scope.material_activation,
+    ),
+    ed25519Signer: {
+      walletKeyId: walletKeyId.value,
+      registeredPublicKeyB64u,
+    },
+    tenantId: ORG_ID,
+    principalId: String(localWalletId()),
+    expiresAtMs: Date.now() + 120_000,
+    identity: {
+      walletId: String(localWalletId()),
+      authorityId: 'wallet-authority:local-existing-yao',
+      walletAuthMethodId: String(factorAuthority.bindingId),
+      rpId: 'wallet.local',
     },
   });
-  return await createEd25519SessionAdapter({
-    privateJwk: LOCAL_CEREMONY_PRIVATE_JWK,
-    issuer: LOCAL_CEREMONY_ISSUER,
-    audience: LOCAL_CEREMONY_AUDIENCE,
-    keyId: LOCAL_CEREMONY_KEY_ID,
-    ttlSeconds: 120,
-  }).signJwt(localWalletId(), claims);
+  const authMethod = buildWalletAuthMethodRecordV2({
+    version: 'wallet_auth_method_v2',
+    walletAuthMethodId: records.authMethod.walletAuthMethodId,
+    walletId: records.authMethod.walletId,
+    walletAuthorityId: records.authMethod.walletAuthorityId,
+    kind: 'email_otp',
+    status: 'active',
+    emailHashHex,
+    registrationAuthorityId: String(records.authority.authorityId),
+    createdAtMs: records.authMethod.createdAtMs,
+    updatedAtMs: records.authMethod.updatedAtMs,
+    activatedAtMs: records.authMethod.activatedAtMs,
+  });
+  if (authMethod.kind !== 'email_otp' || authMethod.status !== 'active') {
+    throw new Error('local Yao Email OTP auth method changed branch');
+  }
+  const scope = { namespace: NAMESPACE, orgId: ORG_ID, projectId: PROJECT_ID, envId: ENV_ID };
+  await prepareD1WalletAuthorityPutStatement({
+    database: input.database,
+    scope,
+    authority: records.authority,
+  }).run();
+  await new D1WalletAuthMethodStore({
+    database: input.database,
+    ...scope,
+    ensureSchema: false,
+  }).putV2(authMethod);
+  await insertEmailOtpEnrollment({
+    database: input.database,
+    ...scope,
+    walletId: String(localWalletId()),
+    providerUserId: EMAIL_PROVIDER_SUBJECT_ID,
+    verifiedEmail: EMAIL_ADDRESS,
+  });
+
+  const tenantId = parseTenantId(ORG_ID);
+  const principalId = parsePrincipalId(String(localWalletId()));
+  const mintId = parseWalletSessionMintId('mint:local-existing-yao');
+  if (!tenantId.ok || !principalId.ok || !mintId.ok) {
+    throw new Error('local Yao Wallet Session identity is invalid');
+  }
+  const authorizationStore = new CloudflareD1AuthorizationStore({
+    database: input.database,
+    namespace: NAMESPACE,
+    walletSignerScope: scope,
+  });
+  const service = new AuthorizationService({
+    policy: capabilityPolicyPort,
+    sessions: authorizationStore,
+    evidence: authorizationStore,
+    grants: authorizationStore,
+    authorizedOperations: authorizationStore,
+    audit: authorizationStore,
+  });
+  const issuedAtMs = Date.now();
+  const issued = await service.issueDirectWalletSessionAuthorizationV2({
+    tenantId: tenantId.value,
+    principalId: principalId.value,
+    walletId: records.authority.walletId,
+    authority: records.authority,
+    walletAuthMethodId: authMethod.walletAuthMethodId,
+    mintId: mintId.value,
+    remainingUses: 10,
+    issuedAtMs,
+    expiresAtMs: issuedAtMs + 120_000,
+  });
+  if (issued.kind !== 'issued') {
+    throw new Error(`local Yao Wallet Session issuance failed: ${issued.kind}`);
+  }
+  const admission = resolveWalletSessionAuthorizationV2Admission({
+    authorization: issued.session,
+    authority: records.authority,
+    authMethod,
+    operation: {
+      tenantId: tenantId.value,
+      principalId: principalId.value,
+      walletId: records.authority.walletId,
+      keyFamily: 'ed25519',
+      operationKind: 'near.sign_transaction',
+    },
+    retiredAtMs: null,
+    nowMs: issuedAtMs,
+  });
+  if (!admission.ok) {
+    throw new Error(`local Yao Wallet Session admission failed: ${admission.error}`);
+  }
+  return {
+    token: issued.operationCredential.token,
+    walletAuthMethodId: String(authMethod.walletAuthMethodId),
+    authority: records.authority,
+    authMethod,
+  };
 }
 
-function localRecoveryAdmission(
-  capability: WalletEd25519YaoActiveCapabilityRecord,
-  lifecycleId: string,
-): RouterAbEd25519YaoRecoveryAdmissionRequestV1 {
-  return requireParsed(
+async function prepareLocalYaoRecoveryAdmission(input: {
+  readonly database: D1DatabaseLike;
+  readonly capability: WalletEd25519YaoActiveCapabilityRecord;
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly authMethod: ActiveEmailOtpWalletAuthMethodRecordV2;
+  readonly label: string;
+}): Promise<{
+  readonly admission: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
+  readonly challengeId: string;
+}> {
+  const nowMs = Date.now();
+  const walletId = input.authority.walletId;
+  const reservationId = parseRecoveryCodeReservationId(`recovery-reservation:${input.label}`);
+  const initialRecoverySet = parseWalletRecoveryEnvelopeSetRecord(
+    rawWalletRecoveryEnvelopeSet({ walletId: String(walletId) }),
+    { expectedWalletId: walletId },
+  );
+  const selectedWrap = initialRecoverySet.manifestKekWraps[0];
+  if (!selectedWrap || selectedWrap.lifecycle.state !== 'active') {
+    throw new Error('local Yao recovery set has no active code');
+  }
+  const reservedWrap = buildWalletRecoveryManifestKekWrap({
+    recoveryKeyId: selectedWrap.recoveryKeyId,
+    nonceB64u: selectedWrap.nonceB64u,
+    wrappedManifestKekB64u: selectedWrap.wrappedManifestKekB64u,
+    aadHashB64u: selectedWrap.aadHashB64u,
+    lifecycle: {
+      state: 'reserved',
+      issuedAtMs: selectedWrap.lifecycle.issuedAtMs,
+      reservationId,
+      reservedAtMs: nowMs,
+      reservationExpiresAtMs: nowMs + 120_000,
+    },
+  });
+  const recoverySet = buildWalletRecoveryEnvelopeSetRecord({
+    walletId,
+    manifestKekWraps: initialRecoverySet.manifestKekWraps.map((wrap, index) =>
+      index === 0 ? reservedWrap : wrap,
+    ),
+    entries: initialRecoverySet.entries,
+    issuedAtMs: initialRecoverySet.issuedAtMs,
+    updatedAtMs: nowMs,
+  });
+  const envelope = passkeyCustodyEnvelope({
+    envelopeId: `envelope:${input.label}`,
+    walletId: String(walletId),
+    binding: rawWalletCustodySeedBinding(),
+    factor: rawEmailOtpFactor({ enrollmentId: 'local-yao-email-enrollment' }),
+    ownership: {
+      kind: 'method_bound',
+      walletAuthMethodId: String(input.authMethod.walletAuthMethodId),
+    },
+    lifecycle: { state: 'active', activatedAtMs: nowMs },
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+  const scope = { namespace: NAMESPACE, orgId: ORG_ID, projectId: PROJECT_ID, envId: ENV_ID };
+  const custodyStore = new CloudflareD1WalletCustodyCommitStore({
+    database: input.database,
+    scope,
+  });
+  const locators = rawWalletRecoveryCodeLocators();
+  const committed = await custodyStore.commitRegistration({
+    envelope,
+    recoverySet,
+    recoveryBackupAcknowledgement: buildWalletRecoveryBackupAcknowledgementV1({
+      walletId: String(walletId),
+      issuedAtMs: recoverySet.issuedAtMs,
+      acknowledgedAtMs: nowMs,
+    }),
+    recoveryCodeLocators: recoverySet.manifestKekWraps.map((wrap, index) => {
+      const locator = locators[index];
+      if (!locator) throw new Error('local Yao recovery locator set is incomplete');
+      return {
+        locatorB64u: parseRecoveryCodeLocatorV1(locator.locatorB64u),
+        walletId,
+        recoveryKeyId: wrap.recoveryKeyId,
+      };
+    }),
+  });
+  if (committed.kind !== 'committed') {
+    throw new Error(`local Yao recovery custody commit failed: ${committed.kind}`);
+  }
+
+  const walletStore = new D1WalletStore({
+    database: input.database,
+    ...scope,
+    ensureSchema: false,
+  });
+  const manifest = await resolveWalletRecoveryKeyManifestV1({ registry: walletStore, walletId });
+  const entry = manifest.entries.find((candidate) => candidate.kind === 'near_ed25519');
+  if (!entry) throw new Error('local Yao recovery manifest has no Ed25519 key set');
+  const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
+    reservationId,
+    keySetId: entry.keySetId,
+  });
+  const basis = entry.recoveryBasis;
+  const admission = requireParsed(
     parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
       scope: {
-        lifecycle_id: lifecycleId,
-        root_share_epoch: ROOT_SHARE_EPOCH,
-        account_id: localWalletId(),
-        threshold_session_id: localWalletSessionId(),
-        signer_set_id: 'ed25519:1',
-        signing_worker_id: SIGNING_WORKER_ID,
-        material_activation: localMaterialActivation(`${lifecycleId}-replacement`),
+        lifecycle_id: String(lifecycleId),
+        root_share_epoch: basis.scope.root_share_epoch,
+        account_id: basis.scope.account_id,
+        threshold_session_id: `${lifecycleId}:threshold-session`,
+        signer_set_id: basis.scope.signer_set_id,
+        signing_worker_id: basis.scope.signing_worker_id,
+        material_activation: localMaterialActivation(`${input.label}-replacement`),
       },
-      active_material_activation: capability.admissionRequest.scope.material_activation,
-      application_binding: capability.admissionRequest.application_binding,
-      participant_ids: capability.admissionRequest.participant_ids,
-      active_capability_binding: capability.activeCapabilityBinding,
+      active_material_activation: basis.activeMaterialActivation,
+      application_binding: basis.applicationBinding,
+      participant_ids: basis.participantIds,
+      active_capability_binding: basis.activeCapabilityBinding,
       replacement_capability_binding: bytes(77),
-      registered_public_key: capability.activationResult.public_receipt.registered_public_key,
+      registered_public_key: basis.registeredPublicKey,
     }),
   );
+
+  const challengeId = `recovery-challenge:${input.label}`;
+  const recoveryOperationId = parseWalletRecoveryOperationId(`recovery-operation:${input.label}`);
+  const rpId = parseWebAuthnRpId('wallet.local');
+  if (!recoveryOperationId.ok || !rpId.ok) {
+    throw new Error('local Yao recovery challenge identity is invalid');
+  }
+  const challenge: WebAuthnRecoveryRegistrationChallengeRecord = {
+    version: 'webauthn_recovery_registration_challenge_v2',
+    challengeId,
+    walletId,
+    reservationId,
+    recoveryOperationId: recoveryOperationId.value,
+    targetDeviceId: input.authority.principal.deviceId,
+    targetAuthorityId: input.authority.authorityId,
+    targetWalletAuthMethodId: input.authMethod.walletAuthMethodId,
+    origin: LOCAL_ORIGIN,
+    rpId: rpId.value,
+    replacementId: `replacement:${input.label}`,
+    challengeB64u: base64UrlEncode(new Uint8Array(32).fill(71)),
+    continuityAnchor: buildWebAuthnRecoveryContinuityAnchorRecord({
+      authority: input.authority,
+      method: input.authMethod,
+      envelope,
+    }),
+    createdAtMs: nowMs,
+    expiresAtMs: nowMs + 120_000,
+  };
+  await new CloudflareD1WebAuthnStore({ database: input.database, ...scope }).writeChallenge({
+    challengeId,
+    challengeKind: 'recovery_registration',
+    record: challenge,
+    createdAtMs: challenge.createdAtMs,
+    expiresAtMs: challenge.expiresAtMs,
+  });
+  return { admission, challengeId };
 }
 
 async function localExportAdmission(
   capability: WalletEd25519YaoActiveCapabilityRecord,
-  lifecycleId: string,
 ): Promise<RouterAbEd25519YaoExportAdmissionRequestV1> {
   const nowMs = Date.now();
   const identity = {
     scope: {
-      lifecycle_id: lifecycleId,
+      lifecycle_id: capability.admissionRequest.scope.lifecycle_id,
       root_share_epoch: ROOT_SHARE_EPOCH,
       account_id: localWalletId(),
       threshold_session_id: localWalletSessionId(),
@@ -851,14 +1210,6 @@ function localWalletId() {
 
 function localWalletSessionId(): string {
   return 'wallet-session-local-existing-yao';
-}
-
-function localWalletAuthorizationId(): string {
-  return 'authorization-grant-local-existing-yao';
-}
-
-function localWalletSessionQuotaId(): string {
-  return 'wallet-session-quota-local-existing-yao';
 }
 
 function localNearSigningKeyId(): string {

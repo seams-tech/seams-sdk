@@ -4,7 +4,13 @@ import type {
   RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
-import { WALLET_CONSOLE_OP_PATHS_V1, WALLET_CONSOLE_SERVICE_ORIGIN_V1 } from './walletConsoleOps';
+import {
+  WALLET_CONSOLE_OP_PATHS_V1,
+  WALLET_CONSOLE_SERVICE_ORIGIN_V1,
+  type WalletConsoleTenantRootActiveLineageResolverV1,
+  type WalletConsoleTenantRootActiveLineageV1,
+  type WalletConsoleTenantRootActiveLineageRequestV1,
+} from './walletConsoleOps';
 
 /** The shape of a Cloudflare service binding (`Fetcher`). */
 export interface WalletConsoleServiceBinding {
@@ -16,6 +22,7 @@ export interface WalletConsoleOpsClient {
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly usageMeter: RouterApiUsageMeterAdapter;
   readonly projectEnvironments: RouterApiProjectEnvironmentResolver;
+  readonly tenantRootActiveLineage: WalletConsoleTenantRootActiveLineageResolverV1;
 }
 
 // The origin is never routable: service bindings dispatch on the bound Worker,
@@ -49,6 +56,22 @@ function failureFrom(
     code: (String(body.code || fallbackCode) || fallbackCode) as never,
     message: String(body.message || 'Wallet Console authentication failed'),
   };
+}
+
+function responseStringField(body: Record<string, unknown>, field: string): string | null {
+  const value = body[field];
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) return null;
+  return value;
+}
+
+function parseTenantRootActiveLineageResponse(
+  body: Record<string, unknown>,
+): WalletConsoleTenantRootActiveLineageV1 | null {
+  if (body.ok !== true) return null;
+  const identityDigestB64u = responseStringField(body, 'identityDigestB64u');
+  const custodyLineageB64u = responseStringField(body, 'custodyLineageB64u');
+  if (!identityDigestB64u || !custodyLineageB64u) return null;
+  return { identityDigestB64u, custodyLineageB64u };
 }
 
 /**
@@ -101,6 +124,27 @@ export function createWalletConsoleOpsClient(
           );
         }
         return body.environments as never;
+      },
+    },
+    tenantRootActiveLineage: {
+      async resolveActiveLineage(
+        identity: WalletConsoleTenantRootActiveLineageRequestV1,
+      ): Promise<WalletConsoleTenantRootActiveLineageV1 | null> {
+        const { status, body } = await postJson(
+          service,
+          WALLET_CONSOLE_OP_PATHS_V1.tenantRootActiveLineage,
+          identity,
+        );
+        if (status === 404 && body.code === 'tenant_root_active_lineage_not_found') {
+          return null;
+        }
+        const lineage = parseTenantRootActiveLineageResponse(body);
+        if (lineage) return lineage;
+        throw new Error(
+          `Wallet Console tenant-root active-lineage resolution failed (HTTP ${status}): ${String(
+            body.message || body.code || 'invalid response',
+          )}`,
+        );
       },
     },
     usageMeter: {

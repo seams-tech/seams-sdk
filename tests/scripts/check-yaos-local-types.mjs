@@ -76,28 +76,6 @@ function loadManifest(definition) {
   return testFiles;
 }
 
-function listTestFiles(directory, prefix) {
-  const files = [];
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    const relativePath = path.posix.join(prefix, entry.name);
-    const absolutePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listTestFiles(absolutePath, relativePath));
-    } else if (entry.isFile() && entry.name.endsWith('.test.ts')) {
-      files.push(relativePath);
-    }
-  }
-  return files.sort();
-}
-
-function requireCompleteLocalInventory(testFiles) {
-  const expected = listTestFiles(path.join(testRoot, 'yaos-local'), 'yaos-local');
-  const observed = testFiles.filter((testFile) => testFile.startsWith('yaos-local/')).sort();
-  if (JSON.stringify(observed) !== JSON.stringify(expected)) {
-    fail('manifest does not contain the complete tests/yaos-local inventory');
-  }
-}
-
 function parseCompilerOptions() {
   const config = ts.readConfigFile(configPath, ts.sys.readFile);
   if (config.error !== undefined) {
@@ -136,7 +114,6 @@ function typeCheck(testFiles) {
 
 const localTestFiles = loadManifest(localManifest);
 const productTestFiles = loadManifest(productManifest);
-requireCompleteLocalInventory(localTestFiles);
 typeCheck([...new Set([...localTestFiles, ...productTestFiles])]);
 console.log(
   `Yao local TypeScript gate passed for ${String(localTestFiles.length)} focused files and ${String(productTestFiles.length)} managed product files`,

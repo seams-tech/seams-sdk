@@ -10,12 +10,21 @@ import { createWalletConsoleOpsClient } from '@seams-internal/wallet-console-ser
 import { createWalletConsoleRelayProxyExtension } from '@seams-internal/wallet-console-server/serviceBinding/walletConsoleRelay';
 import { createWalletRuntimeOpsHandler } from '@seams-internal/wallet-console-server/serviceBinding/walletRuntimeOpsHandler';
 import type { RouterApiUsageMeterEvent } from '@seams/wallet-server/cloud-host';
+import type { TenantRootIdentityV1 } from '@seams-internal/wallet-console-server/tenantRootCreation/types';
 
 const CTX = {
   orgId: 'org-binding-test',
   actorUserId: 'user-binding-test',
   projectId: 'project-1',
   environmentId: 'env-1',
+};
+
+const TENANT_ROOT_IDENTITY: TenantRootIdentityV1 = {
+  orgId: CTX.orgId,
+  projectId: CTX.projectId,
+  envId: CTX.environmentId,
+  signingRootId: `${CTX.projectId}:${CTX.environmentId}`,
+  signingRootVersion: 'runtime-v1',
 };
 
 function bindingHarness() {
@@ -34,6 +43,23 @@ function bindingHarness() {
     projectEnvironments: {
       async listEnvironments() {
         return [];
+      },
+    },
+    tenantRootActiveLineage: {
+      async resolveActiveLineage(identity) {
+        if (
+          identity.orgId !== TENANT_ROOT_IDENTITY.orgId ||
+          identity.projectId !== TENANT_ROOT_IDENTITY.projectId ||
+          identity.envId !== TENANT_ROOT_IDENTITY.envId ||
+          identity.signingRootId !== TENANT_ROOT_IDENTITY.signingRootId ||
+          identity.signingRootVersion !== TENANT_ROOT_IDENTITY.signingRootVersion
+        ) {
+          return null;
+        }
+        return {
+          identityDigestB64u: 'identity-digest-1',
+          custodyLineageB64u: 'custody-lineage-1',
+        };
       },
     },
   });
@@ -124,6 +150,71 @@ test('usage events ingest through the binding with idempotency key preserved', a
   expect(recorded[0].action).toBe('wallet_created');
 });
 
+test('active tenant-root lineage resolves through the exact private operation', async () => {
+  const { client } = bindingHarness();
+  await expect(
+    client.tenantRootActiveLineage.resolveActiveLineage(TENANT_ROOT_IDENTITY),
+  ).resolves.toEqual({
+    identityDigestB64u: 'identity-digest-1',
+    custodyLineageB64u: 'custody-lineage-1',
+  });
+});
+
+test('active tenant-root lineage forwards only the canonical identity through the binding', async () => {
+  const { client } = bindingHarness();
+  await expect(
+    client.tenantRootActiveLineage.resolveActiveLineage({
+      ...TENANT_ROOT_IDENTITY,
+      envId: 'env-selected-by-caller',
+    }),
+  ).resolves.toBeNull();
+});
+
+test('active tenant-root lineage rejects incomplete or extra identity fields at the boundary', async () => {
+  const handler = createWalletConsoleOpsHandler({
+    apiKeyAuth: {
+      async authenticate() {
+        throw new Error('must not run');
+      },
+    },
+    publishableKeyAuth: {
+      async authenticate() {
+        throw new Error('must not run');
+      },
+    },
+    usageMeter: {
+      async recordEvent() {
+        throw new Error('must not run');
+      },
+    },
+    projectEnvironments: {
+      async listEnvironments() {
+        throw new Error('must not run');
+      },
+    },
+    tenantRootActiveLineage: {
+      async resolveActiveLineage() {
+        throw new Error('must not run');
+      },
+    },
+  });
+  const response = await handler(
+    new Request(
+      'https://wallet-console.internal/internal/wallet-console/v1/tenant-root/active-lineage',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...TENANT_ROOT_IDENTITY,
+          extra: 'rejected',
+        }),
+      },
+    ),
+  );
+  expect(response?.status).toBe(400);
+  await expect(response?.json()).resolves.toMatchObject({ code: 'invalid_body' });
+});
+
 test('unknown internal operations are rejected, never forwarded', async () => {
   const { client } = bindingHarness();
   await expect(
@@ -158,6 +249,11 @@ test('public Console origins cannot invoke service-binding operations', async ()
     },
     projectEnvironments: {
       async listEnvironments() {
+        throw new Error('must not run');
+      },
+    },
+    tenantRootActiveLineage: {
+      async resolveActiveLineage() {
         throw new Error('must not run');
       },
     },

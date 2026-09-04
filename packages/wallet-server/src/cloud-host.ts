@@ -65,6 +65,7 @@ export * from './router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 export * from './router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
 export * from './router/domains/ed25519Yao/export/routerAbEd25519YaoExportRequestScopedCloudflare';
 export * from './router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+export * from './router/domains/ed25519Yao/routerAbEd25519YaoGatewayEnvelope';
 export * from './router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 export * from './router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 export * from './router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';

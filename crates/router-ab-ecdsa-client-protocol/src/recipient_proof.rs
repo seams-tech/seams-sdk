@@ -8,6 +8,10 @@ const RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-payload/v1";
 const ECDSA_THRESHOLD_PRF_PROOF_BATCH_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/ecdsa-threshold-prf-proof-batch-payload/v1";
+const MPC_PRF_STABLE_PROOF_BUNDLE_WIRE_VERSION_V2: &[u8] =
+    b"router-ab-protocol/mpc-prf-stable-proof-bundle-wire/v2";
+const MPC_PRF_STABLE_RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V2: &[u8] =
+    b"router-ab-protocol/mpc-prf-stable-recipient-proof-bundle-payload/v2";
 const RECIPIENT_PROOF_BUNDLE_HPKE_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-proof-bundle/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 const RECIPIENT_PROOF_BUNDLE_ALGORITHM_V1: &[u8] = b"hpke_x25519_hkdf_sha256_aes256gcm_v1";
@@ -171,6 +175,18 @@ pub fn open_ecdsa_client_proof_bundle_v1(
     envelope: &EcdsaClientProofBundleEnvelopeV1,
     recipient_private_key: &[u8; 32],
 ) -> Result<EcdsaOpenedClientProofBundleV1, EcdsaClientProtocolError> {
+    let plaintext = open_ecdsa_client_proof_bundle_payload_v1(envelope, recipient_private_key)?;
+    decode_opened_client_payload(&plaintext, envelope)
+}
+
+/// Opens one recipient proof bundle and returns its authenticated plaintext.
+///
+/// The outer envelope remains V1 so callers can dispatch a newer inner payload
+/// without duplicating HPKE or transport parsing.
+fn open_ecdsa_client_proof_bundle_payload_v1(
+    envelope: &EcdsaClientProofBundleEnvelopeV1,
+    recipient_private_key: &[u8; 32],
+) -> Result<Vec<u8>, EcdsaClientProtocolError> {
     envelope.validate()?;
     let private_key = DhKemX25519HkdfSha256::sk_from_bytes(recipient_private_key)
         .map_err(|_| EcdsaClientProtocolError::InvalidShape)?;
@@ -191,7 +207,93 @@ pub fn open_ecdsa_client_proof_bundle_v1(
     if !bool::from(computed_payload_digest.ct_eq(&envelope.payload_digest)) {
         return Err(EcdsaClientProtocolError::InvalidShape);
     }
-    decode_opened_client_payload(&plaintext, envelope)
+    Ok(plaintext)
+}
+
+/// Opens one stable tenant-root client proof bundle in the existing outer
+/// recipient envelope.
+pub fn open_ecdsa_client_proof_bundle_v2(
+    envelope: &EcdsaClientProofBundleEnvelopeV1,
+    recipient_private_key: &[u8; 32],
+) -> Result<EcdsaOpenedClientProofBundleV2, EcdsaClientProtocolError> {
+    let plaintext = open_ecdsa_client_proof_bundle_payload_v1(envelope, recipient_private_key)?;
+    let opened =
+        decode_ecdsa_client_proof_bundle_payload_v2(&plaintext, envelope.transcript_digest)?;
+    if opened.signer != envelope.signer || opened.recipient_identity != envelope.recipient_identity
+    {
+        return Err(EcdsaClientProtocolError::InvalidShape);
+    }
+    Ok(opened)
+}
+
+/// Decodes one strict stable tenant-root client recipient payload.
+pub(crate) fn decode_ecdsa_client_proof_bundle_payload_v2(
+    bytes: &[u8],
+    transcript_digest: [u8; 32],
+) -> Result<EcdsaOpenedClientProofBundleV2, EcdsaClientProtocolError> {
+    let mut decoder = Decoder::new(bytes);
+    decoder.expect_bytes(MPC_PRF_STABLE_RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V2)?;
+    let signer = decoder.read_signer_identity()?;
+    decoder.expect_bytes(CLIENT_ROLE_V1)?;
+    let recipient_identity = decoder.read_string()?;
+    let (proof_signer_role, stable_context_digest, custody_binding_digest, proof_bundle) =
+        decode_stable_proof_bundle_wire_v2(decoder.read_bytes()?)?;
+    decoder.finish()?;
+    if proof_signer_role != signer.role {
+        return Err(EcdsaClientProtocolError::InvalidShape);
+    }
+    Ok(EcdsaOpenedClientProofBundleV2 {
+        transcript_digest,
+        signer,
+        recipient_identity,
+        proof: EcdsaStablePrfPublicProofBundleV2 {
+            stable_context_digest,
+            custody_binding_digest,
+            proof: proof_bundle,
+        },
+    })
+}
+
+fn decode_stable_proof_bundle_wire_v2(
+    bytes: &[u8],
+) -> Result<
+    (
+        EcdsaDeriverRoleV1,
+        [u8; 32],
+        [u8; 32],
+        EcdsaPrfPublicProofBundleV1,
+    ),
+    EcdsaClientProtocolError,
+> {
+    let mut decoder = Decoder::new(bytes);
+    decoder.expect_bytes(MPC_PRF_STABLE_PROOF_BUNDLE_WIRE_VERSION_V2)?;
+    let stable_context_digest = decoder.read_nonzero_fixed::<32>()?;
+    let custody_binding_digest = decoder.read_nonzero_fixed::<32>()?;
+    decoder.expect_bytes(EcdsaPrfPurposeV1::XClientBase.wire_label())?;
+    let signer_role = decoder.read_deriver_role()?;
+    let partial_wire = decoder.read_fixed::<66>()?;
+    let commitment_wire = decoder.read_fixed::<34>()?;
+    let proof_wire = decoder.read_fixed::<64>()?;
+    decoder.finish()?;
+    let partial_share_id = u16::from_be_bytes([partial_wire[0], partial_wire[1]]);
+    let commitment_share_id = u16::from_be_bytes([commitment_wire[0], commitment_wire[1]]);
+    let expected_share_id = match signer_role {
+        EcdsaDeriverRoleV1::A => 1,
+        EcdsaDeriverRoleV1::B => 2,
+    };
+    if partial_share_id != commitment_share_id || partial_share_id != expected_share_id {
+        return Err(EcdsaClientProtocolError::InvalidShape);
+    }
+    Ok((
+        signer_role,
+        stable_context_digest,
+        custody_binding_digest,
+        EcdsaPrfPublicProofBundleV1 {
+            partial_wire,
+            commitment_wire,
+            proof_wire,
+        },
+    ))
 }
 
 /// Builds the exact threshold-PRF context for one opened client proof bundle.
@@ -372,6 +474,14 @@ impl<'a> Decoder<'a> {
             .map_err(|_| EcdsaClientProtocolError::InvalidShape)
     }
 
+    fn read_nonzero_fixed<const N: usize>(&mut self) -> Result<[u8; N], EcdsaClientProtocolError> {
+        let value = self.read_fixed::<N>()?;
+        if value.iter().all(|byte| *byte == 0) {
+            return Err(EcdsaClientProtocolError::InvalidShape);
+        }
+        Ok(value)
+    }
+
     fn read_u32(&mut self) -> Result<u32, EcdsaClientProtocolError> {
         let end = self
             .offset
@@ -500,6 +610,69 @@ mod tests {
             &wrong_suite.recipient_private_key,
         )
         .is_err());
+    }
+
+    #[test]
+    fn stable_client_recipient_payload_decodes_the_frozen_core_wire() {
+        let bytes = decode_hex(concat!(
+            "00000043726f757465722d61622d70726f746f636f6c2f6d70632d7072662d737461626c652d",
+            "726563697069656e742d70726f6f662d62756e646c652d7061796c6f61642f763200000008",
+            "7369676e65725f6100000009646572697665722d610000000765706f63682d610000000663",
+            "6c69656e7400000008636c69656e742d310000015c00000036726f757465722d61622d7072",
+            "6f746f636f6c2f6d70632d7072662d737461626c652d70726f6f662d62756e646c652d7769",
+            "72652f7632000000202d00f67a1dae5c4e3082901eba78cd4513ad9f65ba58333024a151132daf5a52",
+            "000000202828282828282828282828282828282828282828282828282828282828282828",
+            "0000001a726f757465722d61622f785f636c69656e745f626173652f7631000000087369676e",
+            "65725f6100000042000108832fb788136a60f4b0836e704d38ea7e2b8f5afd8e5d641c0c9114c748820a98cdafdc40f431925883fd3fe1bfa8206602e947d1727913eba172fc6ab6e749",
+            "0000002200016cc14ead8beae3d1e9d5dc37702c8eab83fb49a4abd6e18fb5fc60d89ec65c5f",
+            "0000004075a57a8c5acc4279a0d295ee46bd6cf282bec45a1c002e3119cd8822b77e60095b906e7d8a46c750c97c46bd45cea63054fa2cec65385d054dd89e9775471f0e",
+        ));
+        let opened = decode_ecdsa_client_proof_bundle_payload_v2(&bytes, [0x91; 32])
+            .expect("frozen stable recipient payload decodes");
+        assert_eq!(opened.transcript_digest, [0x91; 32]);
+        assert_eq!(opened.signer.role, EcdsaDeriverRoleV1::A);
+        assert_eq!(opened.signer.signer_id, "deriver-a");
+        assert_eq!(opened.signer.key_epoch, "epoch-a");
+        assert_eq!(opened.recipient_identity, "client-1");
+        assert_eq!(
+            opened.proof.stable_context_digest,
+            hex_array("2d00f67a1dae5c4e3082901eba78cd4513ad9f65ba58333024a151132daf5a52"),
+        );
+        assert_eq!(opened.proof.custody_binding_digest, [0x28; 32]);
+        assert_eq!(opened.proof.proof.partial_wire[0..2], [0, 1]);
+        assert_eq!(
+            opened.proof.proof.partial_wire[2..34],
+            hex_array::<32>("08832fb788136a60f4b0836e704d38ea7e2b8f5afd8e5d641c0c9114c748820a",),
+        );
+        assert_eq!(
+            opened.proof.proof.commitment_wire[2..34],
+            hex_array::<32>("6cc14ead8beae3d1e9d5dc37702c8eab83fb49a4abd6e18fb5fc60d89ec65c5f",),
+        );
+        assert_eq!(
+            opened.proof.proof.proof_wire,
+            hex_array("75a57a8c5acc4279a0d295ee46bd6cf282bec45a1c002e3119cd8822b77e60095b906e7d8a46c750c97c46bd45cea63054fa2cec65385d054dd89e9775471f0e"),
+        );
+    }
+
+    fn decode_hex(value: &str) -> Vec<u8> {
+        assert_eq!(value.len() % 2, 0);
+        value
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| (hex_nibble(pair[0]) << 4) | hex_nibble(pair[1]))
+            .collect()
+    }
+
+    fn hex_nibble(value: u8) -> u8 {
+        match value {
+            b'0'..=b'9' => value - b'0',
+            b'a'..=b'f' => value - b'a' + 10,
+            _ => panic!("invalid test hex"),
+        }
+    }
+
+    fn hex_array<const N: usize>(value: &str) -> [u8; N] {
+        decode_hex(value).try_into().expect("fixed test hex length")
     }
 
     fn assert_open_rejected(

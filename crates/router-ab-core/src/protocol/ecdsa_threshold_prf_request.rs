@@ -1,4 +1,4 @@
-use crate::derivation::{PublicDigest32, Role};
+use crate::derivation::{PublicDigest32, Role, StableTenantDerivationContextV2};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -52,7 +52,7 @@ pub struct EcdsaThresholdPrfRequestContextV1 {
     pub signer_set: SignerSetV1,
     /// Network namespace bound into derivation.
     pub network_id: String,
-    /// Account public key bound into derivation.
+    /// SDK application-binding digest used to reconstruct the stable derivation context.
     pub account_public_key: String,
     /// Router identity bound into the transcript.
     pub router_id: String,
@@ -94,6 +94,7 @@ impl EcdsaThresholdPrfRequestContextV1 {
 
     /// Validates public pre-envelope request metadata.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.stable_tenant_derivation_context()?;
         require_non_empty("request_nonce", &self.request_nonce)?;
         if self.expires_at_ms == 0 {
             return Err(RouterAbProtocolError::new(
@@ -148,6 +149,21 @@ impl EcdsaThresholdPrfRequestContextV1 {
     /// Returns the pre-envelope context digest used by signer AAD and plaintext.
     pub fn context_digest(&self) -> PublicDigest32 {
         digest_bytes(&self.canonical_bytes())
+    }
+
+    /// Returns the stable ECDSA context consumed by threshold-PRF.
+    pub fn stable_tenant_derivation_context(
+        &self,
+    ) -> RouterAbProtocolResult<StableTenantDerivationContextV2> {
+        StableTenantDerivationContextV2::from_application_binding_digest_b64u(
+            &self.account_public_key,
+        )
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("public Router request stable derivation context is invalid: {error:?}"),
+            )
+        })
     }
 
     /// Builds transcript metadata from public pre-envelope context.
@@ -297,6 +313,13 @@ impl EcdsaThresholdPrfRequestV1 {
     /// Returns the pre-envelope request context digest for signer AAD/plaintext binding.
     pub fn request_context_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
         Ok(self.context()?.context_digest())
+    }
+
+    /// Returns the stable ECDSA context consumed by threshold-PRF.
+    pub fn stable_tenant_derivation_context(
+        &self,
+    ) -> RouterAbProtocolResult<StableTenantDerivationContextV2> {
+        self.context()?.stable_tenant_derivation_context()
     }
 
     /// Returns the pre-envelope derivation transcript digest for threshold-PRF output binding.

@@ -84,8 +84,8 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
 const GENERATED_IDENTITY_SECRET_MARKERS = new Map([
   ['gateway', 'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK'],
   ['mpc-router', 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET'],
-  ['deriver-a', 'DERIVER_A_ROOT_SHARE_WIRE_SECRET'],
-  ['deriver-b', 'DERIVER_B_ROOT_SHARE_WIRE_SECRET'],
+  ['deriver-a', 'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY'],
+  ['deriver-b', 'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY'],
   ['signing-worker', 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY'],
 ]);
 const ANSI = Object.freeze({
@@ -346,8 +346,6 @@ const deployment = runJsonScript(join(scriptDir, 'generate-deployment-keys.mjs')
   '--show-secrets',
   '--json',
 ]);
-progress.step('Generate matched Deriver root shares');
-const rootShares = runJsonScript(join(scriptDir, 'generate-root-share-keys.mjs'), ['--json']);
 progress.step('Build and validate the GitHub Environment manifest');
 const configuration = buildTargetConfiguration(target, suppliedValues);
 const generatedSecrets = buildGeneratedSecrets(environmentPrefix);
@@ -363,7 +361,6 @@ const output = buildOutput({
   siteId:
     deploymentIdentity.kind === 'site' ? deploymentIdentity.id : deploymentIdentity.lane.site.id,
   deployment,
-  rootShares,
   configuration,
   generatedSecrets,
 });
@@ -426,9 +423,9 @@ Options:
   --json                       Print one machine-readable JSON document.
   --help                       Show this help.
 
-The command generates fresh Router A/B identities, matched root shares, internal
-service authentication, ceremony JWT signing material, Gateway random secrets,
-and signing-session seal material. Values from --values-file and the current
+The command generates fresh Router A/B identities, internal service
+authentication, ceremony JWT signing material, Gateway random secrets, and
+signing-session seal material. Values from --values-file and the current
 shell resolve matching external infrastructure, funded-account, domain, OAuth,
 and Cloudflare placeholders. Prepare mode also discovers the Cloudflare account
 and existing D1 database IDs through Wrangler when possible.
@@ -728,7 +725,6 @@ function buildOutput(input) {
     deploymentComponent: input.deploymentComponent,
     siteLanes: deploymentSiteLanes(deploymentIdentity),
     deployment: input.deployment,
-    rootShares: input.rootShares,
     configuration: input.configuration,
     generatedSecrets: input.generatedSecrets,
     keyset,
@@ -818,6 +814,7 @@ function buildEnvironments(input) {
     buildDeriverAEnvironment(input),
     buildDeriverBEnvironment(input),
     buildSigningWorkerEnvironment(input),
+    buildTenantRootControlPlaneEnvironment(input),
   ]);
 }
 
@@ -830,6 +827,7 @@ function deploymentComponentEnvironmentNames(environmentPrefix, component) {
         `${environmentPrefix}-deriver-a`,
         `${environmentPrefix}-deriver-b`,
         `${environmentPrefix}-signing-worker`,
+        `${environmentPrefix}-tenant-root-control-plane`,
       ];
     case 'product':
       return [environmentPrefix];
@@ -1220,6 +1218,10 @@ function buildMpcRouterEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
         ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON: JSON.stringify(input.projectPolicy),
       },
       optionalVariables: {},
@@ -1240,12 +1242,16 @@ function buildDeriverAEnvironment(input) {
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
-  secrets.DERIVER_A_ROOT_SHARE_WIRE_SECRET =
-    input.rootShares.secrets.account1DeriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET;
   secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_A_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_A_PEER_SIGNING_KEY;
   secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_A_ROLE_PRIVATE_D1_KEK;
+  secrets.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY =
+    input.deployment.secrets.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY =
+    input.deployment.secrets.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY =
+    input.deployment.secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY;
   return [
     environmentName,
     {
@@ -1258,10 +1264,28 @@ function buildDeriverAEnvironment(input) {
           variables.ROUTER_AB_DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+          variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },
       optionalVariables: {},
       secrets,
@@ -1277,12 +1301,16 @@ function buildDeriverBEnvironment(input) {
     environmentName,
     input.generatedSecrets.internalServiceAuth,
   );
-  secrets.DERIVER_B_ROOT_SHARE_WIRE_SECRET =
-    input.rootShares.secrets.account2DeriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET;
   secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY =
     input.deployment.secrets.DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY;
   secrets.DERIVER_B_PEER_SIGNING_KEY = input.deployment.secrets.DERIVER_B_PEER_SIGNING_KEY;
   secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK = input.deployment.secrets.DERIVER_B_ROLE_PRIVATE_D1_KEK;
+  secrets.DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY =
+    input.deployment.secrets.DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY =
+    input.deployment.secrets.DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY;
+  secrets.DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY =
+    input.deployment.secrets.DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY;
   return [
     environmentName,
     {
@@ -1295,10 +1323,69 @@ function buildDeriverBEnvironment(input) {
           variables.ROUTER_AB_DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION,
         ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
           variables.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
         ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_A_PEER_VERIFYING_KEY_HEX,
         ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX:
           variables.ROUTER_AB_DERIVER_B_PEER_VERIFYING_KEY_HEX,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID:
+          variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
+      },
+      optionalVariables: {},
+      secrets,
+    },
+  ];
+}
+
+function buildTenantRootControlPlaneEnvironment(input) {
+  // Sole holder of the R120 issuer private signing key. Provisioned as its own
+  // GitHub Environment so it can carry a separate deployment token and pipeline.
+  const environmentName = `${input.environmentPrefix}-tenant-root-control-plane`;
+  const variables = input.deployment.variables;
+  const secrets = buildWorkerDeploymentSecrets(
+    input.environmentPrefix,
+    environmentName,
+    input.generatedSecrets.internalServiceAuth,
+  );
+  secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY =
+    input.deployment.secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY;
+  return [
+    environmentName,
+    {
+      purpose: 'Tenant-root control-plane Worker',
+      variables: {
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
+        ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:
+          manual(`${environmentName}-tenant-root-grant-authority-verifying-keys-json`),
+        ROUTER_AB_OPERATIONS_INCIDENT_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-operations-incident-verifying-key-hex`,
+        ),
+        ROUTER_AB_DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-deriver-a-custody-authority-verifying-key-hex`,
+        ),
+        ROUTER_AB_DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-deriver-b-custody-authority-verifying-key-hex`,
+        ),
+        ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
+          variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },
       optionalVariables: {},
       secrets,
@@ -2003,6 +2090,7 @@ function validateOutput(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   assertEqual(
     Object.keys(outputDocument.environments),
@@ -2025,6 +2113,10 @@ function validateOutput(outputDocument) {
 function validateWorkflowCoverage(outputDocument) {
   const environmentPrefix = outputDocument.environmentPrefix;
   const backendWorkflow = readDeploymentWorkflow(outputDocument.lane, 'backend');
+  const tenantRootControlPlaneWorkflow = readDeploymentWorkflow(
+    outputDocument.lane,
+    'tenant-root-control-plane',
+  );
   const frontendWorkflow = readDeploymentWorkflow(outputDocument.site, 'frontend');
   const requirements = new Map([
     [environmentPrefix, collectWorkflowRequirements(frontendWorkflow)],
@@ -2047,6 +2139,10 @@ function validateWorkflowCoverage(outputDocument) {
     [
       `${environmentPrefix}-signing-worker`,
       collectWorkflowRequirements(extractWorkflowJob(backendWorkflow, 'deploy_signing_worker')),
+    ],
+    [
+      `${environmentPrefix}-tenant-root-control-plane`,
+      collectWorkflowRequirements(extractWorkflowJob(tenantRootControlPlaneWorkflow, 'deploy')),
     ],
   ]);
 
@@ -2134,6 +2230,7 @@ function validateCloudflareServiceBindingAccount(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   const accountIds = names.map(
     (name) => outputDocument.environments[name].secrets.CLOUDFLARE_ACCOUNT_ID,
@@ -2150,6 +2247,7 @@ function validateSharedInternalServiceAuth(outputDocument) {
     `${outputDocument.environmentPrefix}-deriver-a`,
     `${outputDocument.environmentPrefix}-deriver-b`,
     `${outputDocument.environmentPrefix}-signing-worker`,
+    `${outputDocument.environmentPrefix}-tenant-root-control-plane`,
   ];
   const values = names.map(
     (name) => outputDocument.environments[name].secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET,
@@ -2166,24 +2264,51 @@ function validateRoleSecretIsolation(outputDocument) {
     outputDocument.environments[`${outputDocument.environmentPrefix}-deriver-b`].secrets;
   const signingWorker =
     outputDocument.environments[`${outputDocument.environmentPrefix}-signing-worker`].secrets;
+  const tenantRootControlPlane =
+    outputDocument.environments[
+      `${outputDocument.environmentPrefix}-tenant-root-control-plane`
+    ].secrets;
   assertAbsent(deriverA, [
-    'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_B_PEER_SIGNING_KEY',
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
   ]);
   assertAbsent(deriverB, [
-    'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_A_PEER_SIGNING_KEY',
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
   ]);
   assertAbsent(signingWorker, [
-    'DERIVER_A_ROOT_SHARE_WIRE_SECRET',
-    'DERIVER_B_ROOT_SHARE_WIRE_SECRET',
     'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
     'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
   ]);
-  if (deriverA.DERIVER_A_ROOT_SHARE_WIRE_SECRET === deriverB.DERIVER_B_ROOT_SHARE_WIRE_SECRET) {
-    throw new Error('Deriver A and Deriver B root shares must differ');
+  assertAbsent(tenantRootControlPlane, [
+    'DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY',
+    'SIGNING_WORKER_PRIVATE_D1_KEK',
+  ]);
+  assertAbsent(deriverA, ['TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY']);
+  assertAbsent(deriverB, ['TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY']);
+  const operationalSecrets = [
+    deriverA.DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY,
+    deriverA.DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY,
+    deriverB.DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY,
+    deriverB.DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY,
+  ];
+  if (new Set(operationalSecrets).size !== operationalSecrets.length) {
+    throw new Error('Tenant-root operational provider Secrets must be distinct');
   }
 }
 
@@ -2200,9 +2325,19 @@ function validateRouterPublicIdentityConsistency(outputDocument) {
     'Deriver A envelope public key',
   );
   assertEqual(
+    deriverA.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+    router.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+    'Deriver A peer envelope public key',
+  );
+  assertEqual(
     deriverB.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
     router.ROUTER_AB_DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY,
     'Deriver B envelope public key',
+  );
+  assertEqual(
+    deriverB.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+    router.ROUTER_AB_DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+    'Deriver B peer envelope public key',
   );
   assertEqual(
     signingWorker.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
@@ -2704,6 +2839,7 @@ function deploymentEnvironmentNames(environmentPrefix) {
     `${environmentPrefix}-deriver-a`,
     `${environmentPrefix}-deriver-b`,
     `${environmentPrefix}-signing-worker`,
+    `${environmentPrefix}-tenant-root-control-plane`,
   ];
 }
 

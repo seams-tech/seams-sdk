@@ -7,6 +7,8 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RegistrationEstablishedSessionV2 } from '@shared/utils/registrationEstablishedSession';
+import type { ActiveWalletAuthorityV1 } from '@shared/authorization/walletAuthority';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 
 /** The exact authorization persisted alongside its operation credential. */
 export type ExactWalletSessionAuthorization = {
@@ -14,12 +16,33 @@ export type ExactWalletSessionAuthorization = {
   readonly operationCredential: WalletSessionOperationCredentialV1;
 };
 
+export type ExactWalletSessionAuthorityIdentity = {
+  readonly walletId: ActiveWalletAuthorityV1['walletId'];
+  readonly authorityId: ActiveWalletAuthorityV1['authorityId'];
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigestB64u: ActiveWalletAuthorityV1['authorityDigestB64u'];
+  readonly authorityRevocationEpoch: ActiveWalletAuthorityV1['revocationEpoch'];
+};
+
+export function exactWalletSessionAuthorityIdentity(args: {
+  readonly authority: ActiveWalletAuthorityV1;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+}): ExactWalletSessionAuthorityIdentity {
+  return {
+    walletId: args.authority.walletId,
+    authorityId: args.authority.authorityId,
+    walletAuthMethodId: args.walletAuthMethodId,
+    authorityDigestB64u: args.authority.authorityDigestB64u,
+    authorityRevocationEpoch: args.authority.revocationEpoch,
+  };
+}
+
 type ExactWalletSessionAuthorizationWriter = Pick<
   WalletSessionAuthorizationRepository,
   'writeExactWithOperationCredential'
 >;
 
-function validateExactWalletSessionAuthorization(args: {
+export function validateExactWalletSessionAuthorization(args: {
   readonly walletId: WalletId;
   readonly authority: WalletAuthAuthorityRef;
   readonly walletSession: ActiveWalletSessionV1;
@@ -41,6 +64,21 @@ function validateExactWalletSessionAuthorization(args: {
     throw new Error('ECDSA bootstrap exact Wallet Session authority does not match its request');
   }
   return { record: walletSession, operationCredential };
+}
+
+export function validateExactWalletSessionAuthorityIdentity(args: {
+  readonly expected: ExactWalletSessionAuthorityIdentity;
+  readonly walletSession: ActiveWalletSessionV1;
+}): void {
+  if (
+    args.walletSession.walletId !== args.expected.walletId ||
+    args.walletSession.authorityId !== args.expected.authorityId ||
+    args.walletSession.authMethodId !== args.expected.walletAuthMethodId ||
+    args.walletSession.authorityDigestB64u !== args.expected.authorityDigestB64u ||
+    args.walletSession.authorityRevocationEpoch !== args.expected.authorityRevocationEpoch
+  ) {
+    throw new Error('ECDSA bootstrap exact Wallet Session authority identity changed');
+  }
 }
 
 export async function persistActiveWalletSessionAuthorizationFromDirectRegistration(

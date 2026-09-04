@@ -2119,19 +2119,35 @@ async function handleStrictEcdsaPostRegistrationRoute(input: {
           status: exportAuthorization.error.status,
         });
       }
+      const tenantRoot = await input.ctx.service.walletRegistration.resolveActiveEcdsaTenantRoot({
+        walletId: parsed.request.lifecycle.account_id,
+        materialActivation: parsed.request.material_activation,
+      });
+      if (!tenantRoot.ok) {
+        return json(tenantRoot, { status: tenantRoot.code === 'internal' ? 500 : 403 });
+      }
       const result = await input.port.explicitExport({
         request: parsed.request,
         requestDigestB64u: parsed.requestDigestB64u,
         authority: exportAuthorization.authority,
+        tenantRoot,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
       return json(result.value, { status: 200 });
     }
     case 'refresh': {
+      const tenantRoot = await input.ctx.service.walletRegistration.resolveActiveEcdsaTenantRoot({
+        walletId: parsed.request.lifecycle.account_id,
+        materialActivation: parsed.request.material_activation,
+      });
+      if (!tenantRoot.ok) {
+        return json(tenantRoot, { status: tenantRoot.code === 'internal' ? 500 : 403 });
+      }
       const result = await input.port.refresh({
         request: parsed.command,
         requestDigestB64u: parsed.requestDigestB64u,
         authority: authorized.authority,
+        tenantRoot,
       });
       if (!result.ok) return strictPostRegistrationFailureResponse(result);
       if (result.value.result === 'forwarded') {

@@ -31,6 +31,12 @@ pub enum RouterAbDerivationErrorCode {
     OutputVerificationFailed,
     /// A code path attempted to expose secret material.
     SecretMaterialExposure,
+    /// One authenticated tenant identity and role has no active root binding.
+    MissingActiveTenantRootBinding,
+    /// One authenticated tenant identity and role has more than one active binding.
+    AmbiguousActiveTenantRootBinding,
+    /// One authenticated tenant's active roles do not form one physical root pair.
+    MismatchedActiveTenantRootPair,
 }
 
 /// Redacted diagnostic metadata safe for logs after adapter policy checks.

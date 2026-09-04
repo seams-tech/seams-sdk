@@ -21,6 +21,7 @@ import {
   type RouterAbEcdsaStrictRegistrationTopology,
 } from '@server/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
+import type { TenantRootCustodyLineageResolverV1 } from '@server/router/domains/tenantRoot/tenantRootCustodyLineage';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   parseRouterAbEcdsaRegistrationRequestV1,
@@ -83,6 +84,15 @@ const FIXTURE_ECDSA_SERVER_PUBLIC_KEY33_B64U = Buffer.from([
 ]).toString('base64url');
 const FIXTURE_ECDSA_ADDRESS20_B64U = Buffer.alloc(20, 1).toString('base64url');
 
+export const FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE: TenantRootCustodyLineageResolverV1 = {
+  async resolveActiveLineage() {
+    return {
+      identityDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
+      custodyLineageB64u: Buffer.alloc(16).toString('base64url'),
+    };
+  },
+};
+
 export function fixtureRouterAbEcdsaActivationFacts(): RouterAbEcdsaVerifiedClientActivationFactsV1 {
   return parseRouterAbEcdsaVerifiedClientActivationFactsV1({
     registrationRequestDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,
@@ -143,7 +153,7 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async register(): Promise<never> {
+  async registerWithTenantRoot(): Promise<never> {
     throw new Error('Strict ECDSA registration is outside this fixture');
   }
 
@@ -154,6 +164,9 @@ export class FixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsa
 
 export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements RouterAbEcdsaStrictRegistrationPort {
   registrationRequest: RouterAbEcdsaRegistrationRequestV1 | null = null;
+  tenantRoot:
+    | Parameters<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']>[0]['tenantRoot']
+    | null = null;
   activatedReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | null = null;
   /**
    * Models a caller that dies once the Router has already committed custody:
@@ -166,11 +179,12 @@ export class SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort implements Rou
     return FIXTURE_ECDSA_STRICT_REGISTRATION_TOPOLOGY;
   }
 
-  async register(
-    input: Parameters<RouterAbEcdsaStrictRegistrationPort['register']>[0],
-  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['register']> {
+  async registerWithTenantRoot(
+    input: Parameters<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']>[0],
+  ): ReturnType<RouterAbEcdsaStrictRegistrationPort['registerWithTenantRoot']> {
     const request = parseRouterAbEcdsaRegistrationRequestV1(input.request);
     this.registrationRequest = request;
+    this.tenantRoot = input.tenantRoot;
     const bundle = {
       kind: 'recipient_proof_bundle',
       transcriptDigestB64u: FIXTURE_ECDSA_DIGEST32_B64U,

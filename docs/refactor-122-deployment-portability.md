@@ -17,7 +17,7 @@ a migration destination.
 ## Decision Summary
 
 1. The first supported self-host target is customer-owned Cloudflare
-   infrastructure running the same five runtime artifacts and four strict
+   infrastructure running the same five runtime artifacts and five strict
    Router A/B protocol roles as the managed service. The production account and
    transport profile must preserve Refactor 120's Deriver A/B administrative
    separation. Refactor 130's same-account topology is demo evidence and does
@@ -169,7 +169,7 @@ as replaceable access and execution state.
 Deployment portability means the customer can:
 
 - move from managed Seams into a customer-owned Cloudflare account;
-- operate the four strict Router A/B roles without manually managing their
+- operate the five strict Router A/B roles without manually managing their
   internal configuration graph;
 - restore from a customer-held package when the managed source is unavailable;
 - move back to managed Seams or into another supported deployment through the

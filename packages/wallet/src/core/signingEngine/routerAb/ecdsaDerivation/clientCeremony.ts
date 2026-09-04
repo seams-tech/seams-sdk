@@ -3,12 +3,12 @@ import type {
   WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
 } from '@/core/types/signer-worker';
 import type {
-  RouterAbEcdsaClientProofFinalizationV1,
   RouterAbEcdsaDerivationNormalSigningStateV1,
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaRegistrationActivationReceiptV1,
   RouterAbEcdsaRegistrationRequestFactsV1,
   RouterAbEcdsaRegistrationRequestV1,
+  RouterAbEcdsaStableClientProofFinalizationV2,
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { EcdsaRoleLocalWorkerHandle } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -38,7 +38,7 @@ export type VerifyRouterAbEcdsaRegistrationClientProofsRequestV1 =
     readonly kind: 'verify_router_ab_ecdsa_registration_client_proofs_v1';
     readonly bootstrapOwner: 'wallet_custody';
     readonly ceremonyId: string;
-    readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+    readonly clientProofFinalization: RouterAbEcdsaStableClientProofFinalizationV2;
   };
 
 export type VerifyRouterAbEcdsaRegistrationClientProofsResultV1 = {

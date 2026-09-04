@@ -134,6 +134,7 @@ async function main() {
   await waitForHttpOk(`${routerUrl}/readyz`, 'router readyz', 180_000);
   await waitForHttpOk(`${routerUrl}/console/readyz`, 'console readyz', 180_000);
   seedLocalConsole();
+  await createLocalTenantRoot();
 
   const site = startSite();
   await waitForHttpOk(siteViteUrl, 'site Vite', 120_000);
@@ -371,6 +372,37 @@ function seedLocalConsole() {
   }
   if (result.status !== 0) {
     throw new Error(`local console seed exited with ${String(result.status ?? 'unknown')}`);
+  }
+}
+
+async function createLocalTenantRoot() {
+  console.log('[intended-services] creating server-owned local tenant root');
+  const response = await requestJson(
+    new URL('/console/tenant-root/creation', routerUrl).href,
+    180_000,
+    {
+      ...localConsoleAuthHeaders(),
+      'content-type': 'application/json',
+    },
+    { operationId: 'intended-local-tenant-root-creation-v1' },
+  );
+  let result;
+  try {
+    result = JSON.parse(response.body);
+  } catch {
+    throw new Error(
+      `local tenant-root creation returned invalid JSON (HTTP ${response.statusCode})`,
+    );
+  }
+  if (
+    response.statusCode < 200 ||
+    response.statusCode >= 300 ||
+    result?.ok !== true ||
+    result?.status !== 'ACTIVE'
+  ) {
+    throw new Error(
+      `local tenant-root creation failed (HTTP ${response.statusCode}): ${response.body}`,
+    );
   }
 }
 
@@ -729,6 +761,30 @@ function requestText(urlValue, timeoutMs, headers = {}) {
     );
     req.once('timeout', handleTimeout(req));
     req.once('error', reject);
+  });
+}
+
+function requestJson(urlValue, timeoutMs, headers, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlValue);
+    const transport = url.protocol === 'https:' ? https : http;
+    const encodedBody = JSON.stringify(body);
+    const req = transport.request(
+      url,
+      {
+        timeout: timeoutMs,
+        rejectUnauthorized: false,
+        method: 'POST',
+        headers: {
+          ...headers,
+          'content-length': Buffer.byteLength(encodedBody),
+        },
+      },
+      handleTextResponse(resolve),
+    );
+    req.once('timeout', handleTimeout(req));
+    req.once('error', reject);
+    req.end(encodedBody);
   });
 }
 

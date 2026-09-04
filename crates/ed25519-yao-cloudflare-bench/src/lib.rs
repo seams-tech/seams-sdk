@@ -3,6 +3,24 @@
 //! Benchmark-only Cloudflare adapter for the fixed activation/128 KiB Yao roles.
 
 #[cfg(any(
+    feature = "deriver-a-same-account-websocket",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-b-same-account-websocket",
+    feature = "deriver-b-cross-account",
+    test
+))]
+#[cfg_attr(
+    any(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        feature = "deriver-b-cross-account"
+    ),
+    allow(dead_code, unused_imports)
+)]
+mod r120_preface;
+
+#[cfg(any(
     all(feature = "deriver-a", feature = "deriver-a-cross-account"),
     all(feature = "deriver-a", feature = "deriver-a-same-account-websocket"),
     all(feature = "deriver-a", feature = "deriver-b"),
@@ -159,6 +177,15 @@ compile_error!("a Worker build requires exactly one Deriver A or Deriver B trans
     feature = "deriver-b-same-account-websocket",
     test
 ))]
+#[cfg_attr(
+    any(
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        feature = "deriver-b-cross-account"
+    ),
+    allow(dead_code, unused_imports)
+)]
 mod adapter {
     #[cfg(any(
         feature = "deriver-a",
@@ -185,11 +212,13 @@ mod adapter {
     use std::task::{Context, Poll};
 
     use bytes::Bytes;
-    #[cfg(any(
-        feature = "deriver-a",
-        feature = "deriver-a-cross-account",
-        feature = "deriver-a-same-account-websocket",
-        test
+    #[cfg(all(
+        test,
+        not(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))
     ))]
     use ed25519_yao::phase9_role_benchmark::Activation128KiBDeriverA;
     #[cfg(any(
@@ -197,7 +226,18 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
-    use ed25519_yao::phase9_role_benchmark::ActivationDeriverACompletion;
+    use ed25519_yao::phase9_role_benchmark::{
+        activation_artifact_identity, export_artifact_identity,
+        lane_materialization_artifact_identity, YaoArtifactIdentity,
+    };
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    use ed25519_yao::phase9_role_benchmark::{
+        Activation128KiBDeriverA, Export128KiBDeriverA, LaneMaterialization128KiBDeriverA,
+    };
     #[cfg(any(
         feature = "deriver-b",
         feature = "deriver-b-cross-account",
@@ -205,12 +245,35 @@ mod adapter {
         test
     ))]
     use ed25519_yao::phase9_role_benchmark::{
-        Activation128KiBDeriverB, ActivationDeriverBCompletion,
+        Activation128KiBDeriverB, ActivationDeriverBCompletion, Export128KiBDeriverB,
+        ExportDeriverBCompletion, LaneDeriverBCompletion, LaneMaterialization128KiBDeriverB,
+    };
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    use ed25519_yao::phase9_role_benchmark::{
+        ActivationDeriverACompletion, ExportDeriverACompletion, LaneDeriverACompletion,
+    };
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    use ed25519_yao::phase9_role_benchmark::{
+        ActivationDeriverAInputs, ExportDeriverAInputs, LaneDeriverAInputs,
+    };
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    use ed25519_yao::phase9_role_benchmark::{
+        ActivationDeriverBInputs, ExportDeriverBInputs, LaneDeriverBInputs,
     };
     use ed25519_yao::phase9_role_benchmark::{
         BenchmarkRoleError, DirectionalEofEvidence, DirectionalWireDecoder, DirectionalWireEncoder,
-        RelayEvent, RelayInstruction, RelayStep, WireByteLedger, WireDirection, WireMessage,
-        WireMessageKind,
+        RelayEvent, RelayInstruction, RelayStep, StreamMetrics, WireByteLedger, WireDirection,
+        WireMessage, WireMessageKind,
     };
     #[cfg(any(
         feature = "deriver-a",
@@ -282,6 +345,20 @@ mod adapter {
     use zeroize::Zeroizing;
 
     #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    use crate::r120_preface::{
+        benchmark_direct_deriver_a_contribution, benchmark_direct_deriver_b_contribution,
+        benchmark_peer_commitment_for_a, benchmark_peer_commitment_for_b, benchmark_share_a,
+        benchmark_share_b, benchmark_stable_context, complete_deriver_a, complete_deriver_b,
+        prepare_deriver_a, prepare_deriver_b, proof_bundle_wire_len, DeriverAToBProofBundle,
+        DeriverBToAProofBundle, PrefaceBinding,
+    };
+
+    #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket",
@@ -291,6 +368,18 @@ mod adapter {
         test
     ))]
     pub(super) const BENCHMARK_PATH: &str = "/benchmark/activation";
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
+    pub(super) const R120_PROFILE_HEADER: &str = "x-ed25519-yao-r120-profile";
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
+    pub(super) const R120_CEREMONY_HEADER: &str = "x-ed25519-yao-r120-ceremony";
     #[cfg(any(
         feature = "deriver-a",
         feature = "deriver-a-cross-account",
@@ -406,8 +495,7 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-b-cross-account",
         feature = "deriver-a-same-account-websocket",
-        feature = "deriver-b-same-account-websocket",
-        test
+        feature = "deriver-b-same-account-websocket"
     ))]
     const WEBSOCKET_DIRECTION_EOF: &[u8] = b"YAOEOF01A";
     #[cfg(all(feature = "deriver-a", not(feature = "deriver-a-same-account-rpc")))]
@@ -459,6 +547,207 @@ mod adapter {
     pub(super) const PRODUCTION_ELIGIBLE: bool = false;
     pub(super) const INCOMING_SECRET_BUFFER_DISPOSAL: &str =
         "rust-wasm-copy-zeroized-js-view-overwritten-platform-copies-uncontrolled";
+
+    /// Same-build profile selected for one Phase 0 benchmark ceremony.
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum R120BenchmarkProfile {
+        /// Existing Yao benchmark path without the PRF preface.
+        Current,
+        /// Candidate path with one encrypted bidirectional threshold-PRF preface.
+        ThresholdPrfV1,
+    }
+
+    /// Fixed Yao ceremony selected by the Phase 0 benchmark.
+    #[allow(dead_code)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum BenchmarkCeremony {
+        /// Wallet material activation.
+        Activation,
+        /// Exact owner-seed export.
+        Export,
+        /// Execution-lane materialization.
+        LaneMaterialization,
+    }
+
+    #[allow(dead_code)]
+    impl BenchmarkCeremony {
+        pub(super) const fn as_str(self) -> &'static str {
+            match self {
+                Self::Activation => "activation",
+                Self::Export => "export",
+                Self::LaneMaterialization => "lane-materialization",
+            }
+        }
+
+        pub(super) const fn benchmark_name(self) -> &'static str {
+            match self {
+                Self::Activation => "phase9b-cloudflare-activation-128kib",
+                Self::Export => "r120-cloudflare-export-128kib",
+                Self::LaneMaterialization => "r120-cloudflare-lane-materialization-128kib",
+            }
+        }
+
+        #[cfg(any(
+            feature = "deriver-a",
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
+        pub(super) const fn yao_artifact_identity(self) -> YaoArtifactIdentity {
+            match self {
+                Self::Activation => activation_artifact_identity(),
+                Self::Export => export_artifact_identity(),
+                Self::LaneMaterialization => lane_materialization_artifact_identity(),
+            }
+        }
+
+        fn parse(raw: &str) -> Result<Self, AdapterError> {
+            match raw {
+                "activation" => Ok(Self::Activation),
+                "export" => Ok(Self::Export),
+                "lane-materialization" => Ok(Self::LaneMaterialization),
+                _ => Err(AdapterError::BenchmarkCeremony),
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    impl R120BenchmarkProfile {
+        pub(super) const fn as_str(self) -> &'static str {
+            match self {
+                Self::Current => "current",
+                Self::ThresholdPrfV1 => "threshold-prf-v1",
+            }
+        }
+
+        fn parse(raw: &str) -> Result<Self, AdapterError> {
+            match raw {
+                "current" => Ok(Self::Current),
+                "threshold-prf-v1" => Ok(Self::ThresholdPrfV1),
+                _ => Err(AdapterError::BenchmarkProfile),
+            }
+        }
+    }
+
+    /// Fixed Phase 0 preface accounting kept outside the Yao wire ledger.
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub(super) struct R120PrefaceMetrics {
+        wall_ms: f64,
+        peer_exchange_ms: f64,
+        a_to_b_bytes: u64,
+        b_to_a_bytes: u64,
+        proof_bundle_flights: u64,
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    impl R120PrefaceMetrics {
+        const fn current() -> Self {
+            Self {
+                wall_ms: 0.0,
+                peer_exchange_ms: 0.0,
+                a_to_b_bytes: 0,
+                b_to_a_bytes: 0,
+                proof_bundle_flights: 0,
+            }
+        }
+
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-a-same-account-websocket"
+        ))]
+        fn candidate(wall_ms: f64, peer_exchange_ms: f64) -> Result<Self, AdapterError> {
+            if !wall_ms.is_finite()
+                || !peer_exchange_ms.is_finite()
+                || wall_ms < 0.0
+                || peer_exchange_ms < 0.0
+                || peer_exchange_ms > wall_ms
+            {
+                return Err(AdapterError::TimingEvidence);
+            }
+            let bundle_bytes = u64::try_from(proof_bundle_wire_len())
+                .map_err(|_| AdapterError::MeasurementOverflow)?;
+            Ok(Self {
+                wall_ms,
+                peer_exchange_ms,
+                a_to_b_bytes: bundle_bytes,
+                b_to_a_bytes: bundle_bytes,
+                proof_bundle_flights: 1,
+            })
+        }
+
+        pub(super) const fn wall_ms(self) -> f64 {
+            self.wall_ms
+        }
+
+        pub(super) const fn peer_exchange_ms(self) -> f64 {
+            self.peer_exchange_ms
+        }
+
+        pub(super) const fn a_to_b_bytes(self) -> u64 {
+            self.a_to_b_bytes
+        }
+
+        pub(super) const fn b_to_a_bytes(self) -> u64 {
+            self.b_to_a_bytes
+        }
+
+        pub(super) const fn proof_bundle_flights(self) -> u64 {
+            self.proof_bundle_flights
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
+    pub(super) fn r120_benchmark_profile(
+        headers: &http::HeaderMap,
+    ) -> Result<R120BenchmarkProfile, AdapterError> {
+        let mut values = headers.get_all(R120_PROFILE_HEADER).iter();
+        let profile = match values.next() {
+            Some(value) => R120BenchmarkProfile::parse(
+                value.to_str().map_err(|_| AdapterError::BenchmarkProfile)?,
+            )?,
+            None => R120BenchmarkProfile::Current,
+        };
+        if values.next().is_some() {
+            return Err(AdapterError::BenchmarkProfile);
+        }
+        Ok(profile)
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        test
+    ))]
+    pub(super) fn benchmark_ceremony(
+        headers: &http::HeaderMap,
+    ) -> Result<BenchmarkCeremony, AdapterError> {
+        let mut values = headers.get_all(R120_CEREMONY_HEADER).iter();
+        let ceremony = match values.next() {
+            Some(value) => BenchmarkCeremony::parse(
+                value
+                    .to_str()
+                    .map_err(|_| AdapterError::BenchmarkCeremony)?,
+            )?,
+            None => BenchmarkCeremony::Activation,
+        };
+        if values.next().is_some() {
+            return Err(AdapterError::BenchmarkCeremony);
+        }
+        Ok(ceremony)
+    }
 
     pub(super) fn add_nonpromotion_fields(report: &mut serde_json::Value) {
         let object = report
@@ -600,6 +889,7 @@ mod adapter {
     ))]
     const CEREMONY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+    #[allow(dead_code)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) enum AdapterError {
         Role,
@@ -636,6 +926,8 @@ mod adapter {
         CrossAccountEndpoint,
         PlacementEvidence,
         DeploymentIdentity,
+        BenchmarkProfile,
+        BenchmarkCeremony,
         #[cfg(any(
             feature = "deriver-a",
             feature = "deriver-a-cross-account",
@@ -679,6 +971,13 @@ mod adapter {
             feature = "deriver-b-same-account-websocket"
         ))]
         WebSocketSend,
+        #[cfg(any(
+            feature = "deriver-a-cross-account",
+            feature = "deriver-b-cross-account",
+            feature = "deriver-a-same-account-websocket",
+            feature = "deriver-b-same-account-websocket"
+        ))]
+        Preface,
         #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
         ServiceBinding,
         #[cfg(any(
@@ -744,6 +1043,8 @@ mod adapter {
                 Self::CrossAccountEndpoint => "YAOS_AB_CROSS_ACCOUNT_ENDPOINT",
                 Self::PlacementEvidence => "YAOS_AB_PLACEMENT_EVIDENCE",
                 Self::DeploymentIdentity => "YAOS_AB_DEPLOYMENT_IDENTITY",
+                Self::BenchmarkProfile => "YAOS_AB_BENCHMARK_PROFILE",
+                Self::BenchmarkCeremony => "YAOS_AB_BENCHMARK_CEREMONY",
                 #[cfg(any(
                     feature = "deriver-a",
                     feature = "deriver-a-cross-account",
@@ -787,6 +1088,13 @@ mod adapter {
                     feature = "deriver-b-same-account-websocket"
                 ))]
                 Self::WebSocketSend => "YAOS_AB_WEBSOCKET_SEND",
+                #[cfg(any(
+                    feature = "deriver-a-cross-account",
+                    feature = "deriver-b-cross-account",
+                    feature = "deriver-a-same-account-websocket",
+                    feature = "deriver-b-same-account-websocket"
+                ))]
+                Self::Preface => "YAOS_AB_R120_PREFACE",
                 #[cfg(any(feature = "deriver-a", feature = "deriver-a-same-account-websocket"))]
                 Self::ServiceBinding => "YAOS_AB_SERVICE_BINDING",
                 #[cfg(any(
@@ -828,6 +1136,18 @@ mod adapter {
     impl From<BenchmarkRoleError> for AdapterError {
         fn from(_: BenchmarkRoleError) -> Self {
             Self::Role
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    impl From<crate::r120_preface::PrefaceError> for AdapterError {
+        fn from(_: crate::r120_preface::PrefaceError) -> Self {
+            Self::Preface
         }
     }
 
@@ -1989,13 +2309,99 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
+    enum BenchmarkDeriverA {
+        Activation(Activation128KiBDeriverA),
+        Export(Export128KiBDeriverA),
+        LaneMaterialization(LaneMaterialization128KiBDeriverA),
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    impl BenchmarkDeriverA {
+        fn current(ceremony: BenchmarkCeremony, session: [u8; 32]) -> Result<Self, AdapterError> {
+            Ok(match ceremony {
+                BenchmarkCeremony::Activation => {
+                    Self::Activation(Activation128KiBDeriverA::new(session)?)
+                }
+                BenchmarkCeremony::Export => Self::Export(Export128KiBDeriverA::new(session)?),
+                BenchmarkCeremony::LaneMaterialization => {
+                    Self::LaneMaterialization(LaneMaterialization128KiBDeriverA::new(session)?)
+                }
+            })
+        }
+
+        fn instruction(&self) -> Result<RelayInstruction, AdapterError> {
+            match self {
+                Self::Activation(role) => role.instruction().map_err(AdapterError::from),
+                Self::Export(role) => role.instruction().map_err(AdapterError::from),
+                Self::LaneMaterialization(role) => role.instruction().map_err(AdapterError::from),
+            }
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    pub(super) enum BenchmarkDeriverACompletion {
+        Activation(ActivationDeriverACompletion),
+        Export(ExportDeriverACompletion),
+        LaneMaterialization(LaneDeriverACompletion),
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    impl BenchmarkDeriverACompletion {
+        pub(super) fn stream_metrics(&self) -> StreamMetrics {
+            match self {
+                Self::Activation(completion) => completion.stream_metrics(),
+                Self::Export(completion) => completion.stream_metrics(),
+                Self::LaneMaterialization(completion) => completion.stream_metrics(),
+            }
+        }
+
+        pub(super) fn wire_byte_ledger(&self) -> WireByteLedger {
+            match self {
+                Self::Activation(completion) => completion.wire_byte_ledger(),
+                Self::Export(completion) => completion.wire_byte_ledger(),
+                Self::LaneMaterialization(completion) => completion.wire_byte_ledger(),
+            }
+        }
+
+        pub(super) fn recipient_package_bytes(&self) -> (usize, usize) {
+            match self {
+                Self::Activation(completion) => (
+                    completion.client_package().as_bytes().len(),
+                    completion.signing_worker_package().as_bytes().len(),
+                ),
+                Self::Export(completion) => (completion.export_package().as_bytes().len(), 0),
+                Self::LaneMaterialization(completion) => (
+                    completion.holder_package().as_bytes().len(),
+                    completion.signing_worker_package().as_bytes().len(),
+                ),
+            }
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-a",
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
     enum AProgress {
-        Continue(Activation128KiBDeriverA),
+        Continue(BenchmarkDeriverA),
         Send {
-            role: Activation128KiBDeriverA,
+            role: BenchmarkDeriverA,
             message: WireMessage,
         },
-        Complete(ActivationDeriverACompletion),
+        Complete(BenchmarkDeriverACompletion),
     }
 
     #[cfg(any(
@@ -2004,11 +2410,14 @@ mod adapter {
         feature = "deriver-a-same-account-websocket"
     ))]
     pub(super) struct DeriverABenchmarkCompletion {
-        completion: ActivationDeriverACompletion,
+        completion: BenchmarkDeriverACompletion,
         deployment_id: DeploymentId,
         io_metrics: AdapterIoMetrics,
         placement: PlacementEvidence,
         timings: TransportPhaseTimings,
+        profile: R120BenchmarkProfile,
+        preface: R120PrefaceMetrics,
+        ceremony: BenchmarkCeremony,
     }
 
     #[cfg(any(
@@ -2017,7 +2426,7 @@ mod adapter {
         feature = "deriver-a-same-account-websocket"
     ))]
     impl DeriverABenchmarkCompletion {
-        pub(super) const fn completion(&self) -> &ActivationDeriverACompletion {
+        pub(super) const fn completion(&self) -> &BenchmarkDeriverACompletion {
             &self.completion
         }
 
@@ -2036,6 +2445,18 @@ mod adapter {
         pub(super) const fn timings(&self) -> TransportPhaseTimings {
             self.timings
         }
+
+        pub(super) const fn profile(&self) -> R120BenchmarkProfile {
+            self.profile
+        }
+
+        pub(super) const fn preface(&self) -> R120PrefaceMetrics {
+            self.preface
+        }
+
+        pub(super) const fn ceremony(&self) -> BenchmarkCeremony {
+            self.ceremony
+        }
     }
 
     #[cfg(any(
@@ -2044,7 +2465,7 @@ mod adapter {
         feature = "deriver-a-same-account-websocket"
     ))]
     fn validate_deriver_a_wire_bytes(
-        completion: &ActivationDeriverACompletion,
+        completion: &BenchmarkDeriverACompletion,
         metrics: AdapterIoMetrics,
     ) -> Result<(), AdapterError> {
         let ledger = completion.wire_byte_ledger();
@@ -2063,7 +2484,7 @@ mod adapter {
         test
     ))]
     fn validate_deriver_b_wire_bytes(
-        completion: &ActivationDeriverBCompletion,
+        completion: &BenchmarkDeriverBCompletion,
         metrics: AdapterIoMetrics,
     ) -> Result<(), AdapterError> {
         let ledger = completion.wire_byte_ledger();
@@ -2080,15 +2501,43 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
-    fn advance_a(
-        role: Activation128KiBDeriverA,
-        event: RelayEvent,
-    ) -> Result<AProgress, AdapterError> {
-        Ok(match role.handle(event)? {
-            RelayStep::Continue(role) => AProgress::Continue(role),
-            RelayStep::Send { role, message } => AProgress::Send { role, message },
-            RelayStep::Complete(completion) => AProgress::Complete(completion),
-        })
+    fn advance_a(role: BenchmarkDeriverA, event: RelayEvent) -> Result<AProgress, AdapterError> {
+        match role {
+            BenchmarkDeriverA::Activation(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => {
+                    AProgress::Continue(BenchmarkDeriverA::Activation(role))
+                }
+                RelayStep::Send { role, message } => AProgress::Send {
+                    role: BenchmarkDeriverA::Activation(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => {
+                    AProgress::Complete(BenchmarkDeriverACompletion::Activation(completion))
+                }
+            }),
+            BenchmarkDeriverA::Export(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => AProgress::Continue(BenchmarkDeriverA::Export(role)),
+                RelayStep::Send { role, message } => AProgress::Send {
+                    role: BenchmarkDeriverA::Export(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => {
+                    AProgress::Complete(BenchmarkDeriverACompletion::Export(completion))
+                }
+            }),
+            BenchmarkDeriverA::LaneMaterialization(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => {
+                    AProgress::Continue(BenchmarkDeriverA::LaneMaterialization(role))
+                }
+                RelayStep::Send { role, message } => AProgress::Send {
+                    role: BenchmarkDeriverA::LaneMaterialization(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => AProgress::Complete(
+                    BenchmarkDeriverACompletion::LaneMaterialization(completion),
+                ),
+            }),
+        }
     }
 
     #[cfg(any(
@@ -2208,7 +2657,7 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
-    fn accept_a_continue(progress: AProgress) -> Result<Activation128KiBDeriverA, AdapterError> {
+    fn accept_a_continue(progress: AProgress) -> Result<BenchmarkDeriverA, AdapterError> {
         match progress {
             AProgress::Continue(role) => Ok(role),
             AProgress::Send { .. } | AProgress::Complete(_) => Err(AdapterError::ProtocolState),
@@ -2254,6 +2703,7 @@ mod adapter {
             self.url.as_str()
         }
 
+        #[cfg(feature = "deriver-a-cross-account")]
         fn url(&self) -> &url::Url {
             &self.url
         }
@@ -2266,12 +2716,39 @@ mod adapter {
         feature = "deriver-b-same-account-websocket",
         test
     ))]
-    fn websocket_protocol(deployment_id: &DeploymentId, session: [u8; 32]) -> String {
+    fn websocket_protocol(
+        deployment_id: &DeploymentId,
+        session: [u8; 32],
+        profile: R120BenchmarkProfile,
+        ceremony: BenchmarkCeremony,
+    ) -> String {
         format!(
-            "{WEBSOCKET_PROTOCOL_PREFIX}.{}.{}",
+            "{WEBSOCKET_PROTOCOL_PREFIX}.{}.{}.{}.{}",
             deployment_id.as_str(),
-            encode_session(session)
+            encode_session(session),
+            profile.as_str(),
+            ceremony.as_str(),
         )
+    }
+
+    /// Exact identity carried by the benchmark WebSocket subprotocol.
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(super) struct WebSocketProtocolBinding {
+        /// Deployment shared by the two benchmark roles.
+        pub(super) deployment_id: DeploymentId,
+        /// One nonzero Yao and preface session identifier.
+        pub(super) session: [u8; 32],
+        /// Same-build current or candidate profile.
+        pub(super) profile: R120BenchmarkProfile,
+        /// Fixed Yao ceremony run after the optional preface.
+        pub(super) ceremony: BenchmarkCeremony,
     }
 
     #[cfg(any(
@@ -2283,18 +2760,24 @@ mod adapter {
     ))]
     pub(super) fn parse_websocket_protocol(
         raw: &str,
-    ) -> Result<(DeploymentId, [u8; 32]), AdapterError> {
+    ) -> Result<WebSocketProtocolBinding, AdapterError> {
         let mut parts = raw.split('.');
         let prefix = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
         let deployment_id = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
         let session = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
+        let profile = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
+        let ceremony = parts.next().ok_or(AdapterError::WebSocketProtocol)?;
         if prefix != WEBSOCKET_PROTOCOL_PREFIX || parts.next().is_some() {
             return Err(AdapterError::WebSocketProtocol);
         }
-        Ok((
-            DeploymentId::parse(deployment_id)?,
-            decode_session(session)?,
-        ))
+        Ok(WebSocketProtocolBinding {
+            deployment_id: DeploymentId::parse(deployment_id)?,
+            session: decode_session(session)?,
+            profile: R120BenchmarkProfile::parse(profile)
+                .map_err(|_| AdapterError::WebSocketProtocol)?,
+            ceremony: BenchmarkCeremony::parse(ceremony)
+                .map_err(|_| AdapterError::WebSocketProtocol)?,
+        })
     }
 
     #[cfg(any(
@@ -2408,6 +2891,181 @@ mod adapter {
         socket
             .send_with_bytes(envelope.as_slice())
             .map_err(|_| AdapterError::WebSocketSend)
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    async fn run_r120_preface_a(
+        socket: &worker::WebSocket,
+        events: &mut worker::EventStream<'_>,
+        session: [u8; 32],
+        ceremony: BenchmarkCeremony,
+    ) -> Result<(BenchmarkDeriverA, R120PrefaceMetrics), AdapterError> {
+        let started_ms = worker::js_sys::Date::now();
+        let stable_context = benchmark_stable_context()?;
+        let binding = PrefaceBinding::new(session, &stable_context, [0x71; 32])?;
+        let share = benchmark_share_a()?;
+        let (prepared, outgoing) = prepare_deriver_a(
+            &share,
+            benchmark_peer_commitment_for_a(),
+            &stable_context,
+            binding,
+        )?;
+        socket
+            .send_with_bytes(outgoing.as_bytes())
+            .map_err(|_| AdapterError::WebSocketSend)?;
+        let exchange_started_ms = worker::js_sys::Date::now();
+        let WebSocketTransportEvent::Binary(incoming) = next_websocket_event(events).await? else {
+            return Err(AdapterError::ProtocolState);
+        };
+        let incoming = DeriverBToAProofBundle::decode(&incoming)?;
+        let contribution = complete_deriver_a(prepared, &incoming, &stable_context)?;
+        let completed_ms = worker::js_sys::Date::now();
+        let (server_y, server_tau) = contribution.into_parts();
+        let server_y = server_y.into_bytes();
+        let server_tau = server_tau.into_bytes();
+        let role = benchmark_deriver_a_with_contribution(session, ceremony, server_y, server_tau)?;
+        Ok((
+            role,
+            R120PrefaceMetrics::candidate(
+                completed_ms - started_ms,
+                completed_ms - exchange_started_ms,
+            )?,
+        ))
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    fn benchmark_deriver_a_with_contribution(
+        session: [u8; 32],
+        ceremony: BenchmarkCeremony,
+        server_y: [u8; 32],
+        server_tau: [u8; 32],
+    ) -> Result<BenchmarkDeriverA, AdapterError> {
+        Ok(match ceremony {
+            BenchmarkCeremony::Activation => {
+                BenchmarkDeriverA::Activation(Activation128KiBDeriverA::with_inputs(
+                    session,
+                    ActivationDeriverAInputs::new(
+                        [0x31; 32],
+                        server_y,
+                        canonical_scalar(3),
+                        server_tau,
+                    )?,
+                )?)
+            }
+            BenchmarkCeremony::Export => {
+                BenchmarkDeriverA::Export(Export128KiBDeriverA::with_inputs(
+                    session,
+                    ExportDeriverAInputs::new([0x31; 32], server_y)?,
+                )?)
+            }
+            BenchmarkCeremony::LaneMaterialization => BenchmarkDeriverA::LaneMaterialization(
+                LaneMaterialization128KiBDeriverA::with_inputs(
+                    session,
+                    LaneDeriverAInputs::new(
+                        [0x31; 32],
+                        server_y,
+                        canonical_scalar(3),
+                        server_tau,
+                        canonical_scalar(7),
+                    )?,
+                )?,
+            ),
+        })
+    }
+
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    async fn run_r120_preface_b(
+        socket: &worker::WebSocket,
+        events: &mut worker::EventStream<'_>,
+        session: [u8; 32],
+        ceremony: BenchmarkCeremony,
+    ) -> Result<BenchmarkDeriverB, AdapterError> {
+        let stable_context = benchmark_stable_context()?;
+        let binding = PrefaceBinding::new(session, &stable_context, [0x71; 32])?;
+        let share = benchmark_share_b()?;
+        let (prepared, outgoing) = prepare_deriver_b(
+            &share,
+            benchmark_peer_commitment_for_b(),
+            &stable_context,
+            binding,
+        )?;
+        socket
+            .send_with_bytes(outgoing.as_bytes())
+            .map_err(|_| AdapterError::WebSocketSend)?;
+        let WebSocketTransportEvent::Binary(incoming) = next_websocket_event(events).await? else {
+            return Err(AdapterError::ProtocolState);
+        };
+        let incoming = DeriverAToBProofBundle::decode(&incoming)?;
+        let contribution = complete_deriver_b(prepared, &incoming, &stable_context)?;
+        let (server_y, server_tau) = contribution.into_parts();
+        let session = role_session(session);
+        let server_y = server_y.into_bytes();
+        let server_tau = server_tau.into_bytes();
+        benchmark_deriver_b_with_contribution(session, ceremony, server_y, server_tau)
+    }
+
+    #[cfg(any(
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    fn benchmark_deriver_b_with_contribution(
+        session: [u8; 32],
+        ceremony: BenchmarkCeremony,
+        server_y: [u8; 32],
+        server_tau: [u8; 32],
+    ) -> Result<BenchmarkDeriverB, AdapterError> {
+        Ok(match ceremony {
+            BenchmarkCeremony::Activation => {
+                BenchmarkDeriverB::Activation(Activation128KiBDeriverB::with_inputs(
+                    session,
+                    ActivationDeriverBInputs::new(
+                        [0x32; 32],
+                        server_y,
+                        canonical_scalar(5),
+                        server_tau,
+                    )?,
+                )?)
+            }
+            BenchmarkCeremony::Export => {
+                BenchmarkDeriverB::Export(Export128KiBDeriverB::with_inputs(
+                    session,
+                    ExportDeriverBInputs::new([0x32; 32], server_y)?,
+                )?)
+            }
+            BenchmarkCeremony::LaneMaterialization => BenchmarkDeriverB::LaneMaterialization(
+                LaneMaterialization128KiBDeriverB::with_inputs(
+                    session,
+                    LaneDeriverBInputs::new(
+                        [0x32; 32],
+                        server_y,
+                        canonical_scalar(5),
+                        server_tau,
+                        canonical_scalar(11),
+                    )?,
+                )?,
+            ),
+        })
+    }
+
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-a-same-account-websocket",
+        feature = "deriver-b-same-account-websocket"
+    ))]
+    const fn canonical_scalar(value: u8) -> [u8; 32] {
+        let mut scalar = [0_u8; 32];
+        scalar[0] = value;
+        scalar
     }
 
     #[cfg(feature = "deriver-a-cross-account")]
@@ -2587,9 +3245,11 @@ mod adapter {
         session: [u8; 32],
         deriver_a_colo: Option<Colo>,
         timeout_socket: Rc<RefCell<Option<worker::WebSocket>>>,
+        profile: R120BenchmarkProfile,
+        ceremony: BenchmarkCeremony,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
         let timing = TransportTimingRecorder::worker()?;
-        let protocol = websocket_protocol(&deployment_id, session);
+        let protocol = websocket_protocol(&deployment_id, session, profile, ceremony);
         let socket = connect_deriver_b_websocket(env, &protocol).await?;
         *timeout_socket
             .try_borrow_mut()
@@ -2601,7 +3261,7 @@ mod adapter {
         socket
             .as_ref()
             .set_binary_type(worker::web_sys::BinaryType::Arraybuffer);
-        let events = socket
+        let mut events = socket
             .events()
             .map_err(|_| AdapterError::WebSocketConnect)?;
         socket
@@ -2609,13 +3269,28 @@ mod adapter {
             .map_err(|_| AdapterError::WebSocketConnect)?;
 
         timing.mark(TimingEvent::BResponseHeadersReceived)?;
+        let (role, preface) = match profile {
+            R120BenchmarkProfile::Current => {
+                let (server_y, server_tau) = benchmark_direct_deriver_a_contribution();
+                (
+                    benchmark_deriver_a_with_contribution(session, ceremony, server_y, server_tau)?,
+                    R120PrefaceMetrics::current(),
+                )
+            }
+            R120BenchmarkProfile::ThresholdPrfV1 => {
+                run_r120_preface_a(&socket, &mut events, session, ceremony).await?
+            }
+        };
         let transport = WebSocketYaoDuplexTransport::new(&socket, events, session, timing.clone())?;
         run_deriver_a(
             transport,
+            role,
             deployment_id,
-            session,
             PlacementEvidence::new(deriver_a_colo, None),
             timing,
+            profile,
+            preface,
+            ceremony,
         )
         .await
     }
@@ -2949,10 +3624,13 @@ mod adapter {
         };
         run_deriver_a(
             transport,
+            BenchmarkDeriverA::current(BenchmarkCeremony::Activation, session)?,
             deployment_id,
-            session,
             PlacementEvidence::new(deriver_a_colo, deriver_b_colo),
             timing,
+            R120BenchmarkProfile::Current,
+            R120PrefaceMetrics::current(),
+            BenchmarkCeremony::Activation,
         )
         .await
     }
@@ -2962,14 +3640,17 @@ mod adapter {
         feature = "deriver-a-cross-account",
         feature = "deriver-a-same-account-websocket"
     ))]
+    #[allow(clippy::too_many_arguments)]
     async fn run_deriver_a<T: YaoDuplexTransport>(
         mut transport: T,
+        mut role: BenchmarkDeriverA,
         deployment_id: DeploymentId,
-        session: [u8; 32],
         placement: PlacementEvidence,
         timing: TransportTimingRecorder,
+        profile: R120BenchmarkProfile,
+        preface: R120PrefaceMetrics,
+        ceremony: BenchmarkCeremony,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
-        let mut role = Activation128KiBDeriverA::new(session)?;
         let mut deferred = VecDeque::with_capacity(1);
 
         loop {
@@ -3034,6 +3715,9 @@ mod adapter {
                         io_metrics: transport_completion.io_metrics,
                         placement,
                         timings: timing.finish()?,
+                        profile,
+                        preface,
+                        ceremony,
                     });
                 }
             }
@@ -3050,7 +3734,11 @@ mod adapter {
         deployment_id: DeploymentId,
         session: [u8; 32],
         deriver_a_colo: Option<Colo>,
+        profile: R120BenchmarkProfile,
+        ceremony: BenchmarkCeremony,
     ) -> Result<DeriverABenchmarkCompletion, AdapterError> {
+        #[cfg(feature = "deriver-a")]
+        let _ = (profile, ceremony);
         #[cfg(feature = "deriver-a")]
         let controller = worker::AbortController::default();
         #[cfg(any(
@@ -3076,6 +3764,8 @@ mod adapter {
             session,
             deriver_a_colo,
             timeout_socket.clone(),
+            profile,
+            ceremony,
         ));
         let timeout = Box::pin(worker::Delay::from(CEREMONY_TIMEOUT));
         match select(ceremony, timeout).await {
@@ -3085,10 +3775,13 @@ mod adapter {
                     feature = "deriver-a-same-account-websocket"
                 ))]
                 if let Ok(mut socket) = timeout_socket.try_borrow_mut() {
-                    if result.is_err() {
-                        if let Some(socket) = socket.as_ref() {
-                            let _ignored = socket.close(Some(1011), Some("ceremony failed"));
-                        }
+                    if let Some(socket) = socket.as_ref() {
+                        let (code, reason) = if result.is_ok() {
+                            (1000, "complete")
+                        } else {
+                            (1011, "ceremony failed")
+                        };
+                        let _ignored = socket.close(Some(code), Some(reason));
                     }
                     socket.take();
                 }
@@ -3217,6 +3910,84 @@ mod adapter {
         }
     }
 
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    enum BenchmarkDeriverB {
+        Activation(Activation128KiBDeriverB),
+        Export(Export128KiBDeriverB),
+        LaneMaterialization(LaneMaterialization128KiBDeriverB),
+    }
+
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    impl BenchmarkDeriverB {
+        fn current(ceremony: BenchmarkCeremony, session: [u8; 32]) -> Result<Self, AdapterError> {
+            Ok(match ceremony {
+                BenchmarkCeremony::Activation => {
+                    Self::Activation(Activation128KiBDeriverB::new(role_session(session))?)
+                }
+                BenchmarkCeremony::Export => {
+                    Self::Export(Export128KiBDeriverB::new(role_session(session))?)
+                }
+                BenchmarkCeremony::LaneMaterialization => Self::LaneMaterialization(
+                    LaneMaterialization128KiBDeriverB::new(role_session(session))?,
+                ),
+            })
+        }
+
+        fn instruction(&self) -> Result<RelayInstruction, AdapterError> {
+            match self {
+                Self::Activation(role) => role.instruction().map_err(AdapterError::from),
+                Self::Export(role) => role.instruction().map_err(AdapterError::from),
+                Self::LaneMaterialization(role) => role.instruction().map_err(AdapterError::from),
+            }
+        }
+    }
+
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    enum BenchmarkDeriverBCompletion {
+        Activation(ActivationDeriverBCompletion),
+        Export(ExportDeriverBCompletion),
+        LaneMaterialization(LaneDeriverBCompletion),
+    }
+
+    #[cfg(any(
+        feature = "deriver-b",
+        feature = "deriver-b-cross-account",
+        feature = "deriver-b-same-account-websocket",
+        test
+    ))]
+    impl BenchmarkDeriverBCompletion {
+        fn stream_metrics(&self) -> StreamMetrics {
+            match self {
+                Self::Activation(completion) => completion.stream_metrics(),
+                Self::Export(completion) => completion.stream_metrics(),
+                Self::LaneMaterialization(completion) => completion.stream_metrics(),
+            }
+        }
+
+        fn wire_byte_ledger(&self) -> WireByteLedger {
+            match self {
+                Self::Activation(completion) => completion.wire_byte_ledger(),
+                Self::Export(completion) => completion.wire_byte_ledger(),
+                Self::LaneMaterialization(completion) => completion.wire_byte_ledger(),
+            }
+        }
+    }
+
     // Keeping the role continuation inline avoids allocating per table frame.
     #[cfg(any(
         feature = "deriver-b",
@@ -3226,12 +3997,12 @@ mod adapter {
     ))]
     #[allow(clippy::large_enum_variant)]
     enum BProgress {
-        Continue(Activation128KiBDeriverB),
+        Continue(BenchmarkDeriverB),
         Send {
-            role: Activation128KiBDeriverB,
+            role: BenchmarkDeriverB,
             message: WireMessage,
         },
-        Complete(ActivationDeriverBCompletion),
+        Complete(BenchmarkDeriverBCompletion),
     }
 
     #[cfg(any(
@@ -3240,15 +4011,43 @@ mod adapter {
         feature = "deriver-b-same-account-websocket",
         test
     ))]
-    fn advance_b(
-        role: Activation128KiBDeriverB,
-        event: RelayEvent,
-    ) -> Result<BProgress, AdapterError> {
-        Ok(match role.handle(event)? {
-            RelayStep::Continue(role) => BProgress::Continue(role),
-            RelayStep::Send { role, message } => BProgress::Send { role, message },
-            RelayStep::Complete(completion) => BProgress::Complete(completion),
-        })
+    fn advance_b(role: BenchmarkDeriverB, event: RelayEvent) -> Result<BProgress, AdapterError> {
+        match role {
+            BenchmarkDeriverB::Activation(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => {
+                    BProgress::Continue(BenchmarkDeriverB::Activation(role))
+                }
+                RelayStep::Send { role, message } => BProgress::Send {
+                    role: BenchmarkDeriverB::Activation(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => {
+                    BProgress::Complete(BenchmarkDeriverBCompletion::Activation(completion))
+                }
+            }),
+            BenchmarkDeriverB::Export(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => BProgress::Continue(BenchmarkDeriverB::Export(role)),
+                RelayStep::Send { role, message } => BProgress::Send {
+                    role: BenchmarkDeriverB::Export(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => {
+                    BProgress::Complete(BenchmarkDeriverBCompletion::Export(completion))
+                }
+            }),
+            BenchmarkDeriverB::LaneMaterialization(role) => Ok(match role.handle(event)? {
+                RelayStep::Continue(role) => {
+                    BProgress::Continue(BenchmarkDeriverB::LaneMaterialization(role))
+                }
+                RelayStep::Send { role, message } => BProgress::Send {
+                    role: BenchmarkDeriverB::LaneMaterialization(role),
+                    message,
+                },
+                RelayStep::Complete(completion) => BProgress::Complete(
+                    BenchmarkDeriverBCompletion::LaneMaterialization(completion),
+                ),
+            }),
+        }
     }
 
     #[cfg(any(
@@ -3260,7 +4059,7 @@ mod adapter {
         encoder: &mut DirectionalWireEncoder,
         metrics: &mut AdapterIoMetrics,
         progress: BProgress,
-    ) -> Result<Activation128KiBDeriverB, AdapterError> {
+    ) -> Result<BenchmarkDeriverB, AdapterError> {
         match progress {
             BProgress::Continue(role) => Ok(role),
             BProgress::Send { role, message } => {
@@ -3280,6 +4079,8 @@ mod adapter {
         deployment_id: DeploymentId,
         session: [u8; 32],
         placement: PlacementEvidence,
+        profile: R120BenchmarkProfile,
+        ceremony: BenchmarkCeremony,
     ) -> Result<(), AdapterError> {
         socket
             .as_ref()
@@ -3290,7 +4091,20 @@ mod adapter {
         socket
             .accept()
             .map_err(|_| AdapterError::WebSocketConnect)?;
-        let mut role = Activation128KiBDeriverB::new(role_session(session))?;
+        let mut role = match profile {
+            R120BenchmarkProfile::Current => {
+                let (server_y, server_tau) = benchmark_direct_deriver_b_contribution();
+                benchmark_deriver_b_with_contribution(
+                    role_session(session),
+                    ceremony,
+                    server_y,
+                    server_tau,
+                )?
+            }
+            R120BenchmarkProfile::ThresholdPrfV1 => {
+                run_r120_preface_b(&socket, &mut events, session, ceremony).await?
+            }
+        };
         let mut decoder = Some(EnvelopeDecoder::new(
             WireDirection::DeriverAToDeriverB,
             session,
@@ -3370,7 +4184,14 @@ mod adapter {
                         return Err(AdapterError::ProtocolState);
                     };
                     validate_deriver_b_wire_bytes(&completion, metrics)?;
-                    log_b_completion(&completion, &deployment_id, metrics, &placement);
+                    log_b_completion(
+                        &completion,
+                        &deployment_id,
+                        metrics,
+                        &placement,
+                        profile,
+                        ceremony,
+                    );
                     socket
                         .close(Some(1000), Some("complete"))
                         .map_err(|_| AdapterError::WebSocketSend)?;
@@ -3429,7 +4250,7 @@ mod adapter {
         test
     ))]
     pub(super) struct DeriverBResponseStream {
-        role: Option<Activation128KiBDeriverB>,
+        role: Option<BenchmarkDeriverB>,
         deployment_id: DeploymentId,
         placement: PlacementEvidence,
         inbound: SecretIncomingBody,
@@ -3463,7 +4284,10 @@ mod adapter {
             placement: PlacementEvidence,
         ) -> Result<Self, AdapterError> {
             Ok(Self {
-                role: Some(Activation128KiBDeriverB::new(role_session(session))?),
+                role: Some(BenchmarkDeriverB::current(
+                    BenchmarkCeremony::Activation,
+                    session,
+                )?),
                 deployment_id,
                 placement,
                 inbound,
@@ -3573,6 +4397,8 @@ mod adapter {
                 &self.deployment_id,
                 self.metrics,
                 &self.placement,
+                R120BenchmarkProfile::Current,
+                BenchmarkCeremony::Activation,
             );
             self.terminated = true;
             Ok(())
@@ -3607,21 +4433,24 @@ mod adapter {
         test
     ))]
     fn log_b_completion(
-        completion: &ActivationDeriverBCompletion,
+        completion: &BenchmarkDeriverBCompletion,
         deployment_id: &DeploymentId,
         io_metrics: AdapterIoMetrics,
         placement: &PlacementEvidence,
+        profile: R120BenchmarkProfile,
+        ceremony: BenchmarkCeremony,
     ) {
         let metrics = completion.stream_metrics();
         let wire = completion.wire_byte_ledger();
         let mut report = serde_json::json!({
             "event": "ed25519_yao_benchmark_b_complete",
-            "benchmark": "phase9b-cloudflare-activation-128kib",
+            "benchmark": ceremony.benchmark_name(),
             "benchmark_only": true,
             "role": "deriver-b",
             "topology": B_TOPOLOGY_LABEL,
-            "family": "activation",
+            "family": ceremony.as_str(),
             "profile": "128KiB",
+            "r120_profile": profile.as_str(),
             "workers_rs_version": WORKERS_RS_VERSION,
             "deriver_a_colo": placement.deriver_a_colo().map(Colo::as_str),
             "deriver_b_colo": placement.deriver_b_colo().map(Colo::as_str),
@@ -3913,22 +4742,90 @@ mod adapter {
         fn websocket_subprotocol_binds_exact_deployment_and_session() {
             let deployment_id = fixture_deployment_id();
             let session = [0xa5; 32];
-            let protocol = websocket_protocol(&deployment_id, session);
+            let protocol = websocket_protocol(
+                &deployment_id,
+                session,
+                R120BenchmarkProfile::ThresholdPrfV1,
+                BenchmarkCeremony::LaneMaterialization,
+            );
             assert_eq!(
                 parse_websocket_protocol(&protocol),
-                Ok((deployment_id, session))
+                Ok(WebSocketProtocolBinding {
+                    deployment_id,
+                    session,
+                    profile: R120BenchmarkProfile::ThresholdPrfV1,
+                    ceremony: BenchmarkCeremony::LaneMaterialization,
+                })
             );
             for rejected in [
                 "yaos-ab-v1",
                 "yaos-ab-v2.0123456789abcdef0123456789abcdef.a5",
                 "yaos-ab-v1.0123456789abcdef0123456789abcdef.0000000000000000000000000000000000000000000000000000000000000000",
                 "yaos-ab-v1.0123456789abcdef0123456789abcdef.a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5.extra",
+                "yaos-ab-v1.0123456789abcdef0123456789abcdef.a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5.unknown",
+                "yaos-ab-v1.0123456789abcdef0123456789abcdef.a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5.current.unknown",
             ] {
                 assert!(
                     parse_websocket_protocol(rejected).is_err(),
                     "accepted invalid WebSocket subprotocol: {rejected}"
                 );
             }
+        }
+
+        #[test]
+        fn r120_profile_header_is_optional_unique_and_exact() {
+            let current = http::HeaderMap::new();
+            assert_eq!(
+                r120_benchmark_profile(&current),
+                Ok(R120BenchmarkProfile::Current)
+            );
+
+            let mut candidate = http::HeaderMap::new();
+            candidate.insert(
+                R120_PROFILE_HEADER,
+                http::HeaderValue::from_static("threshold-prf-v1"),
+            );
+            assert_eq!(
+                r120_benchmark_profile(&candidate),
+                Ok(R120BenchmarkProfile::ThresholdPrfV1)
+            );
+
+            candidate.append(
+                R120_PROFILE_HEADER,
+                http::HeaderValue::from_static("current"),
+            );
+            assert_eq!(
+                r120_benchmark_profile(&candidate),
+                Err(AdapterError::BenchmarkProfile)
+            );
+        }
+
+        #[test]
+        fn r120_ceremony_header_is_optional_unique_and_exact() {
+            let current = http::HeaderMap::new();
+            assert_eq!(
+                benchmark_ceremony(&current),
+                Ok(BenchmarkCeremony::Activation)
+            );
+
+            let mut lane = http::HeaderMap::new();
+            lane.insert(
+                R120_CEREMONY_HEADER,
+                http::HeaderValue::from_static("lane-materialization"),
+            );
+            assert_eq!(
+                benchmark_ceremony(&lane),
+                Ok(BenchmarkCeremony::LaneMaterialization)
+            );
+
+            lane.append(
+                R120_CEREMONY_HEADER,
+                http::HeaderValue::from_static("activation"),
+            );
+            assert_eq!(
+                benchmark_ceremony(&lane),
+                Err(AdapterError::BenchmarkCeremony)
+            );
         }
 
         #[test]
@@ -4479,15 +5376,15 @@ fn deriver_a_report(result: &adapter::DeriverABenchmarkCompletion, elapsed_ms: f
     let io_metrics = result.io_metrics();
     let placement = result.placement();
     let timings = result.timings();
-    let client_package_bytes = completion.client_package().as_bytes().len();
-    let signing_worker_package_bytes = completion.signing_worker_package().as_bytes().len();
+    let preface = result.preface();
+    let (client_package_bytes, signing_worker_package_bytes) = completion.recipient_package_bytes();
     let mut report = serde_json::json!({
         "ok": true,
-        "benchmark": "phase9b-cloudflare-activation-128kib",
+        "benchmark": result.ceremony().benchmark_name(),
         "benchmark_only": true,
         "role": "deriver-a",
         "topology": adapter::A_TOPOLOGY_LABEL,
-        "family": "activation",
+        "family": result.ceremony().as_str(),
         "profile": "128KiB",
         "workers_rs_version": adapter::WORKERS_RS_VERSION,
         "deriver_a_colo": placement.deriver_a_colo().map(adapter::Colo::as_str),
@@ -4523,12 +5420,92 @@ fn deriver_a_report(result: &adapter::DeriverABenchmarkCompletion, elapsed_ms: f
         "max_injected_outgoing_fragment_bytes": io_metrics.max_injected_outgoing_fragment_bytes(),
         "max_queued_outgoing_envelopes": adapter::MAX_QUEUED_OUTGOING_ENVELOPES,
     });
+    add_yao_artifact_fields(&mut report, result.ceremony().yao_artifact_identity());
+    add_r120_report_fields(&mut report, result.profile(), preface);
     add_body_byte_timing_fields(&mut report, timings);
     adapter::add_deployment_id_field(&mut report, result.deployment_id());
     adapter::add_secret_ingress_copy_fields(&mut report, io_metrics);
     adapter::add_wire_fields(&mut report, wire);
     adapter::add_nonpromotion_fields(&mut report);
     report.to_string()
+}
+
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
+fn add_yao_artifact_fields(
+    report: &mut serde_json::Value,
+    identity: ed25519_yao::phase9_role_benchmark::YaoArtifactIdentity,
+) {
+    let object = report
+        .as_object_mut()
+        .expect("benchmark reports are constructed as JSON objects");
+    object.insert(
+        "yao_circuit_digest".to_owned(),
+        serde_json::Value::String(encode_digest(identity.circuit_digest())),
+    );
+    object.insert(
+        "yao_schedule_digest".to_owned(),
+        serde_json::Value::String(encode_digest(identity.schedule_digest())),
+    );
+}
+
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
+fn encode_digest(bytes: [u8; 32]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+#[cfg(any(
+    feature = "deriver-a",
+    feature = "deriver-a-cross-account",
+    feature = "deriver-a-same-account-websocket"
+))]
+fn add_r120_report_fields(
+    report: &mut serde_json::Value,
+    profile: adapter::R120BenchmarkProfile,
+    preface: adapter::R120PrefaceMetrics,
+) {
+    let object = report
+        .as_object_mut()
+        .expect("benchmark reports are constructed as JSON objects");
+    object.insert(
+        "r120_profile".to_owned(),
+        serde_json::Value::String(profile.as_str().to_owned()),
+    );
+    for (field, value) in [
+        ("r120_preface_wall_ms", preface.wall_ms()),
+        ("r120_preface_peer_exchange_ms", preface.peer_exchange_ms()),
+    ] {
+        object.insert(field.to_owned(), serde_json::Value::from(value));
+    }
+    for (field, value) in [
+        ("r120_preface_a_to_b_bytes", preface.a_to_b_bytes()),
+        ("r120_preface_b_to_a_bytes", preface.b_to_a_bytes()),
+        (
+            "r120_preface_total_bytes",
+            preface.a_to_b_bytes() + preface.b_to_a_bytes(),
+        ),
+        ("r120_proof_bundle_flights", preface.proof_bundle_flights()),
+        ("r120_added_connection_count", 0),
+        ("r120_added_http_request_count", 0),
+        ("r120_added_websocket_count", 0),
+        ("r120_added_client_round_trip_count", 0),
+        ("r120_standalone_readiness_message_flights", 0),
+    ] {
+        object.insert(field.to_owned(), serde_json::Value::from(value));
+    }
 }
 
 #[cfg(any(
@@ -4616,6 +5593,36 @@ pub async fn main(
             )
         }
     };
+    #[cfg(feature = "deriver-a")]
+    let profile = adapter::R120BenchmarkProfile::Current;
+    #[cfg(feature = "deriver-a")]
+    let ceremony = adapter::BenchmarkCeremony::Activation;
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    let profile = match adapter::r120_benchmark_profile(request.headers()) {
+        Ok(profile) => profile,
+        Err(error) => {
+            return json_response(
+                http::StatusCode::BAD_REQUEST,
+                deriver_a_error_body(error.code()),
+            )
+        }
+    };
+    #[cfg(any(
+        feature = "deriver-a-cross-account",
+        feature = "deriver-a-same-account-websocket"
+    ))]
+    let ceremony = match adapter::benchmark_ceremony(request.headers()) {
+        Ok(ceremony) => ceremony,
+        Err(error) => {
+            return json_response(
+                http::StatusCode::BAD_REQUEST,
+                deriver_a_error_body(error.code()),
+            )
+        }
+    };
     if let Err(error) = adapter::require_empty_public_request_body(request.body_mut()).await {
         worker::console_error!(
             "{{\"event\":\"ed25519_yao_benchmark_a_rejected\",\"benchmark_only\":true,\"role\":\"deriver-a\",\"topology\":\"{}\",\"error_code\":\"{}\"}}",
@@ -4637,7 +5644,16 @@ pub async fn main(
             )
         }
     };
-    match adapter::run_deriver_a_with_timeout(&env, deployment_id, session, deriver_a_colo).await {
+    match adapter::run_deriver_a_with_timeout(
+        &env,
+        deployment_id,
+        session,
+        deriver_a_colo,
+        profile,
+        ceremony,
+    )
+    .await
+    {
         Ok(completion) => {
             let report = deriver_a_report(&completion, worker::js_sys::Date::now() - started_ms);
             worker::console_log!("{}", report);
@@ -4856,7 +5872,7 @@ pub async fn main(
             )
         }
     };
-    let (protocol_deployment_id, session) = match adapter::parse_websocket_protocol(&protocol) {
+    let protocol_binding = match adapter::parse_websocket_protocol(&protocol) {
         Ok(binding) => binding,
         Err(error) => {
             return deriver_b_websocket_error_response(http::StatusCode::BAD_REQUEST, error)
@@ -4872,7 +5888,7 @@ pub async fn main(
             );
         }
     };
-    if protocol_deployment_id != deployment_id {
+    if protocol_binding.deployment_id != deployment_id {
         return deriver_b_websocket_error_response(
             http::StatusCode::PRECONDITION_FAILED,
             adapter::AdapterError::DeploymentIdentity,
@@ -4892,8 +5908,15 @@ pub async fn main(
     let server = pair.server;
     let server_for_error = server.clone();
     context.wait_until(async move {
-        if let Err(error) =
-            adapter::run_deriver_b_websocket(server, deployment_id, session, placement).await
+        if let Err(error) = adapter::run_deriver_b_websocket(
+            server,
+            deployment_id,
+            protocol_binding.session,
+            placement,
+            protocol_binding.profile,
+            protocol_binding.ceremony,
+        )
+        .await
         {
             adapter::log_b_failure(error);
             let _ignored = server_for_error.close(Some(1011), Some(error.code()));

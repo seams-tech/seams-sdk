@@ -22,7 +22,7 @@ use router_ab_ed25519_yao_protocol::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use worker::{Env, Method, Request, Response};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::hpke::cloudflare_hpke_x25519_public_key_bytes_v1;
 use crate::{
@@ -120,11 +120,21 @@ struct MpcMaterialActivationRefWireV1 {
 }
 
 /// Private scalar artifact retained by the generic lane material journal.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CloudflareEd25519LaneActiveServerMaterialV1 {
     pub kind: String,
     pub signing_worker_scalar_b64u: String,
+}
+
+impl core::fmt::Debug for CloudflareEd25519LaneActiveServerMaterialV1 {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("CloudflareEd25519LaneActiveServerMaterialV1")
+            .field("kind", &self.kind)
+            .field("signing_worker_scalar_b64u", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl CloudflareEd25519LaneActiveServerMaterialV1 {
@@ -580,6 +590,8 @@ pub async fn handle_cloudflare_signing_worker_ed25519_lane_activate_private_fetc
 mod tests {
     use super::*;
 
+    fn assert_zeroize_on_drop<T: ZeroizeOnDrop>() {}
+
     fn digest(byte: u8) -> String {
         URL_SAFE_NO_PAD.encode([byte; 32])
     }
@@ -601,6 +613,16 @@ mod tests {
             transcript_hash_b64u: digest(5),
             protocol_commit_receipt_digest_b64u: digest(6),
         }
+    }
+
+    #[test]
+    fn active_server_material_zeroizes_on_drop_and_redacts_debug() {
+        assert_zeroize_on_drop::<CloudflareEd25519LaneActiveServerMaterialV1>();
+        let material = CloudflareEd25519LaneActiveServerMaterialV1::new([42; 32]);
+        let debug = format!("{material:?}");
+
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains(&material.signing_worker_scalar_b64u));
     }
 
     #[test]

@@ -1,8 +1,10 @@
 use crate::derivation::{
-    combine_mpc_prf_proof_bundles_with_threshold_backend_v1, MpcPrfPartialProofBundleV1,
-    MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
-    MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, Role,
-    RouterAbDerivationError, SecretMaterial32,
+    combine_mpc_prf_proof_bundles_with_threshold_backend_v1,
+    combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2, MpcPrfPartialProofBundleV1,
+    MpcPrfStablePurposeBindingPlanV2, MpcPrfStableThresholdCombineInputV2,
+    MpcPrfStableThresholdCombinedOutputV2, MpcPrfThresholdCombineInputV1,
+    MpcPrfThresholdCombinedOutputV1, MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind,
+    PublicDigest32, Role, RouterAbDerivationError, SecretMaterial32,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -14,7 +16,8 @@ use crate::protocol::error::{
 use crate::protocol::identity::{SignerIdentityV1, SignerSetV1};
 use crate::protocol::lifecycle::LifecycleScopeV1;
 use crate::protocol::payload::{
-    router_transcript_binding_v1, EcdsaThresholdPrfProofBatchPayloadV1,
+    router_transcript_binding_v1, verify_mpc_prf_stable_recipient_proof_bundle_payload_v2,
+    EcdsaThresholdPrfProofBatchPayloadV1, MpcPrfStableRecipientProofBundlePayloadV2,
     RecipientProofBundlePayloadV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
     SigningWorkerActivationContextV1,
 };
@@ -355,6 +358,30 @@ impl RecipientProofBundleEncryptionRequestV1 {
         Ok(request)
     }
 
+    /// Creates a V1-envelope encryption request for a stable V2 proof payload.
+    ///
+    /// The outer transcript digest belongs to the surrounding Router request;
+    /// stable and custody digests stay inside the encrypted V2 payload.
+    pub fn new_stable_v2(
+        payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+        recipient_encryption_key: impl Into<String>,
+        transcript_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        payload.validate()?;
+        let request = Self {
+            recipient_role: payload.recipient_role,
+            signer: payload.signer.clone(),
+            opened_share_kind: payload.opened_share_kind()?,
+            recipient_identity: payload.recipient_identity.clone(),
+            recipient_encryption_key: recipient_encryption_key.into(),
+            transcript_digest,
+            payload_digest: payload.digest(),
+            plaintext: payload.canonical_bytes(),
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Validates public proof-bundle encryption request metadata.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("recipient_identity", &self.recipient_identity)?;
@@ -602,6 +629,69 @@ pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         recipient_role,
         recipient_identity,
     )
+}
+
+/// Verifies and combines one stable V2 recipient output from Signer A and B.
+pub fn combine_mpc_prf_stable_recipient_output_from_proof_bundle_payloads_v2(
+    expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+    signer_a_payload: MpcPrfStableRecipientProofBundlePayloadV2,
+    signer_b_payload: MpcPrfStableRecipientProofBundlePayloadV2,
+    recipient_role: Role,
+    recipient_identity: &str,
+) -> RouterAbProtocolResult<MpcPrfStableThresholdCombinedOutputV2> {
+    require_non_empty("recipient_identity", recipient_identity)?;
+    require_stable_recipient_payload_v2(
+        "signer_a_payload",
+        &signer_a_payload,
+        expected_plan,
+        Role::SignerA,
+        recipient_role,
+        recipient_identity,
+    )?;
+    require_stable_recipient_payload_v2(
+        "signer_b_payload",
+        &signer_b_payload,
+        expected_plan,
+        Role::SignerB,
+        recipient_role,
+        recipient_identity,
+    )?;
+    let left = signer_a_payload.stable_partial_for_plan(expected_plan)?;
+    let right = signer_b_payload.stable_partial_for_plan(expected_plan)?;
+    combine_mpc_prf_stable_proof_bundles_with_threshold_backend_v2(
+        MpcPrfStableThresholdCombineInputV2 {
+            purpose_plan: expected_plan.clone(),
+            left,
+            right,
+        },
+    )
+    .map_err(map_derivation_to_protocol_error)
+}
+
+fn require_stable_recipient_payload_v2(
+    field: &str,
+    payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+    expected_plan: &MpcPrfStablePurposeBindingPlanV2,
+    expected_signer_role: Role,
+    expected_recipient_role: Role,
+    expected_recipient_identity: &str,
+) -> RouterAbProtocolResult<()> {
+    payload.validate()?;
+    if payload.signer.role != expected_signer_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            format!("{field} must be sent by {}", expected_signer_role.as_str()),
+        ));
+    }
+    if payload.recipient_role != expected_recipient_role
+        || payload.recipient_identity != expected_recipient_identity
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} recipient binding does not match requested output"),
+        ));
+    }
+    verify_mpc_prf_stable_recipient_proof_bundle_payload_v2(payload, expected_plan)
 }
 
 /// Combines SigningWorker `x_server_base` output from decrypted A/B proof-bundle payloads.
@@ -1001,6 +1091,29 @@ pub fn verify_recipient_proof_bundle_ciphertext_payload_v1(
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "recipient proof-bundle ciphertext metadata does not match decrypted payload",
+        ));
+    }
+    Ok(())
+}
+
+/// Verifies a V2 stable recipient payload against the reused V1 ciphertext envelope.
+pub fn verify_recipient_proof_bundle_ciphertext_payload_v2(
+    envelope: &RecipientProofBundleCiphertextV1,
+    payload: &MpcPrfStableRecipientProofBundlePayloadV2,
+    expected_transcript_digest: PublicDigest32,
+) -> RouterAbProtocolResult<()> {
+    envelope.validate()?;
+    payload.validate()?;
+    if envelope.recipient_role != payload.recipient_role
+        || envelope.signer != payload.signer
+        || envelope.opened_share_kind != payload.opened_share_kind()?
+        || envelope.recipient_identity != payload.recipient_identity
+        || envelope.transcript_digest != expected_transcript_digest
+        || envelope.payload_digest != payload.digest()
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "recipient proof-bundle ciphertext metadata does not match stable V2 payload",
         ));
     }
     Ok(())

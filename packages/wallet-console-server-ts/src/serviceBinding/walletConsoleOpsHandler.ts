@@ -13,6 +13,8 @@ import {
   WALLET_CONSOLE_SERVICE_ORIGIN_V1,
   type WalletConsoleSecretKeyAuthRequestV1,
   type WalletConsolePublishableKeyAuthRequestV1,
+  type WalletConsoleTenantRootActiveLineageRequestV1,
+  type WalletConsoleTenantRootActiveLineageResolverV1,
   type WalletConsoleUsageEventV1,
 } from './walletConsoleOps';
 
@@ -21,7 +23,16 @@ export interface WalletConsoleOpsHandlerServices {
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly usageMeter: RouterApiUsageMeterAdapter;
   readonly projectEnvironments: RouterApiProjectEnvironmentResolver;
+  readonly tenantRootActiveLineage: WalletConsoleTenantRootActiveLineageResolverV1;
 }
+
+const TENANT_ROOT_IDENTITY_FIELDS = Object.freeze([
+  'orgId',
+  'projectId',
+  'envId',
+  'signingRootId',
+  'signingRootVersion',
+] as const);
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -40,6 +51,33 @@ function stringField(body: Record<string, unknown>, field: string): string {
   return String(body[field] ?? '').trim();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasExactFields(value: Record<string, unknown>, fields: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.length === fields.length && fields.every((field) => Object.hasOwn(value, field));
+}
+
+function canonicalStringField(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) return null;
+  return value;
+}
+
+function parseTenantRootActiveLineageRequest(
+  value: unknown,
+): WalletConsoleTenantRootActiveLineageRequestV1 | null {
+  if (!isRecord(value) || !hasExactFields(value, TENANT_ROOT_IDENTITY_FIELDS)) return null;
+  const orgId = canonicalStringField(value.orgId);
+  const projectId = canonicalStringField(value.projectId);
+  const envId = canonicalStringField(value.envId);
+  const signingRootId = canonicalStringField(value.signingRootId);
+  const signingRootVersion = canonicalStringField(value.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootId || !signingRootVersion) return null;
+  return { orgId, projectId, envId, signingRootId, signingRootVersion };
+}
+
 function parseRequiredScopes(value: unknown): ApiCredentialScope[] | null {
   if (!Array.isArray(value)) return null;
   const scopes: ApiCredentialScope[] = [];
@@ -54,7 +92,7 @@ function parseRequiredScopes(value: unknown): ApiCredentialScope[] | null {
 
 /**
  * Console-side target of the private Wallet Console service binding. Serves
- * exactly the four declared operations; every other path under the internal
+ * exactly the five declared operations; every other path under the internal
  * prefix is a 404 so the surface cannot grow silently.
  */
 export function createWalletConsoleOpsHandler(
@@ -171,6 +209,37 @@ export function createWalletConsoleOpsHandler(
           : undefined,
       );
       return json({ ok: true, environments });
+    }
+
+    if (pathname === WALLET_CONSOLE_OP_PATHS_V1.tenantRootActiveLineage) {
+      const body: unknown = await request.json().catch(() => null);
+      const identity = parseTenantRootActiveLineageRequest(body);
+      if (!identity) {
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'A complete canonical tenant-root identity is required',
+          },
+          400,
+        );
+      }
+      const lineage = await services.tenantRootActiveLineage.resolveActiveLineage(identity);
+      if (!lineage) {
+        return json(
+          {
+            ok: false,
+            code: 'tenant_root_active_lineage_not_found',
+            message: 'No active tenant-root lineage exists for this identity',
+          },
+          404,
+        );
+      }
+      return json({
+        ok: true,
+        identityDigestB64u: lineage.identityDigestB64u,
+        custodyLineageB64u: lineage.custodyLineageB64u,
+      });
     }
 
     return json({ ok: false, code: 'not_found', message: 'Unknown wallet-console operation' }, 404);

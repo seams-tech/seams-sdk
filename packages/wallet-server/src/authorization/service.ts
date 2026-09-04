@@ -114,7 +114,7 @@ export interface AuthorizationGrantPort {
   commitDirectWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult>;
-  commitDirectRegistrationPromotedWalletSessionAuthorizationV2(input: {
+  commitDirectReplayableWalletSessionAuthorizationV2(input: {
     readonly persisted: PersistedActiveWalletSessionAuthorizationV2;
   }): Promise<DirectV2CommitResult>;
   readWalletSessionAuthorizationV2ByAuthorizationId(input: {
@@ -419,20 +419,9 @@ export class AuthorizationService {
       quota: prepared.quota,
       primaryOperationCredentialDigestB64u: await digestOpaqueValue(token),
     });
-    let commit: DirectV2CommitResult;
-    switch (replayMode.kind) {
-      case 'strict':
-        commit = await this.ports.grants.commitDirectWalletSessionAuthorizationV2({ persisted });
-        break;
-      case 'validated_registration_authority_projection':
-        commit =
-          await this.ports.grants.commitDirectRegistrationPromotedWalletSessionAuthorizationV2({
-            persisted,
-          });
-        break;
-      default:
-        return assertNeverDirectWalletSessionReplayMode(replayMode);
-    }
+    const commit = await this.ports.grants.commitDirectReplayableWalletSessionAuthorizationV2({
+      persisted,
+    });
     if (commit.kind === 'already_committed') {
       return directV2AlreadyCommitted(prepared.session, commit.committed.session, replayMode);
     }
@@ -668,29 +657,11 @@ function directV2AlreadyCommitted(
   replayMode: DirectWalletSessionReplayMode,
 ): Extract<DirectV2IssueResult, { readonly kind: 'already_committed' }> {
   switch (replayMode.kind) {
-    case 'strict': {
-      const {
-        createdAtMs: preparedCreatedAtMs,
-        expiresAtMs: preparedExpiresAtMs,
-        ...preparedExactTuple
-      } = prepared;
-      const {
-        createdAtMs: committedCreatedAtMs,
-        expiresAtMs: committedExpiresAtMs,
-        ...committedExactTuple
-      } = committed;
-      const preparedLifetimeMs = preparedExpiresAtMs - preparedCreatedAtMs;
-      const committedLifetimeMs = committedExpiresAtMs - committedCreatedAtMs;
-      if (
-        preparedLifetimeMs !== committedLifetimeMs ||
-        alphabetizeStringify(preparedExactTuple) !== alphabetizeStringify(committedExactTuple)
-      ) {
-        throw new Error(
-          'Direct V2 Wallet Session mint replay does not match its committed session',
-        );
+    case 'strict':
+      if (!directV2StrictReplayMatches(prepared, committed)) {
+        throw new Error('Direct V2 Wallet Session mint replay does not match its committed session');
       }
       break;
-    }
     case 'validated_registration_authority_projection':
       if (!directV2MintScopeMatches(prepared, committed)) {
         throw new Error(
@@ -712,6 +683,30 @@ function directV2AlreadyCommitted(
     quotaId: committed.quotaId,
     next: 'unlock_exact_method',
   };
+}
+
+function directV2StrictReplayMatches(
+  prepared: WalletSessionAuthorizationV2,
+  committed: WalletSessionAuthorizationV2,
+): boolean {
+  return (
+    prepared.kind === committed.kind &&
+    prepared.tenantId === committed.tenantId &&
+    prepared.principalId === committed.principalId &&
+    prepared.walletId === committed.walletId &&
+    prepared.authorityId === committed.authorityId &&
+    prepared.walletAuthMethodId === committed.walletAuthMethodId &&
+    prepared.authorityDigestB64u === committed.authorityDigestB64u &&
+    prepared.authorityRevocationEpoch === committed.authorityRevocationEpoch &&
+    prepared.mintId === committed.mintId &&
+    prepared.authorizationId === committed.authorizationId &&
+    prepared.walletSessionId === committed.walletSessionId &&
+    prepared.quotaId === committed.quotaId &&
+    alphabetizeStringify(prepared.capabilitySubjects) ===
+      alphabetizeStringify(committed.capabilitySubjects) &&
+    prepared.expiresAtMs - prepared.createdAtMs ===
+      committed.expiresAtMs - committed.createdAtMs
+  );
 }
 
 function directV2MintScopeMatches(

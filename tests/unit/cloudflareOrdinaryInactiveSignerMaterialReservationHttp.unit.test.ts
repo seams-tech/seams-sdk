@@ -156,11 +156,24 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
   const endpoint = createCloudflareLinkedDeviceEd25519SourcePreservingRouterEndpointV1({
     fetch: responseFetch,
     internalServiceAuthSecret: 'internal-secret',
+    resolveTenantRoot: async () => ({
+      identityDigestB64u: 'tenant-root-identity-digest',
+      custodyLineageB64u: 'tenant-root-custody-lineage',
+    }),
   });
 
   const result = await endpoint.executeEd25519SourcePreservingV1({
     sourceBinding: sourceContribution.sourceBinding,
     targetRequest,
+    targetAdmission: {
+      binding: targetPreparation.targetBinding,
+      keyset: {
+        deriver_a_input_public_key: new Array<number>(32).fill(1),
+        deriver_b_input_public_key: new Array<number>(32).fill(2),
+        signing_worker_recipient_public_key: new Array<number>(32).fill(3),
+      },
+    },
+    applicationBinding: targetPreparation.applicationBinding,
     participantIds: targetPreparation.sourceContribution.participantIds,
   });
 
@@ -173,12 +186,18 @@ test('Ed25519 source-preserving execution uses the MPC Router service binding', 
   expect(calls[0]?.body).toEqual({
     source_binding: sourceContribution.sourceBinding,
     target: {
-      operation: 'registration',
-      binding: targetRequest.binding,
-      deriver_a_input: targetRequest.deriver_a_input,
-      deriver_b_input: targetRequest.deriver_b_input,
+      tenant_root: {
+        identity_digest_b64u: 'tenant-root-identity-digest',
+        custody_lineage_b64u: 'tenant-root-custody-lineage',
+      },
+      application: targetPreparation.applicationBinding,
+      participant_ids: targetPreparation.sourceContribution.participantIds,
+      target: {
+        binding: targetRequest.binding,
+        deriver_a_input: targetRequest.deriver_a_input,
+        deriver_b_input: targetRequest.deriver_b_input,
+      },
     },
-    participant_ids: targetPreparation.sourceContribution.participantIds,
   });
 });
 

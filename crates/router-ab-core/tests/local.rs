@@ -1,3 +1,4 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use router_ab_core::{
     decode_ab_peer_message_payload_v1,
     decode_and_validate_ecdsa_threshold_prf_proof_batch_peer_payload_v1,
@@ -27,6 +28,10 @@ use router_ab_core::{
 
 fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
+}
+
+fn application_binding_digest_b64u() -> String {
+    Base64UrlUnpadded::encode_string(&[0x42; 32])
 }
 
 fn explicit_material_activation() -> MpcMaterialActivationRefV1 {
@@ -238,7 +243,7 @@ fn ecdsa_threshold_prf_request() -> EcdsaThresholdPrfRequestV1 {
         lifecycle_scope(),
         signer_set(),
         "near-testnet",
-        "ed25519:local-dev-account-public-key",
+        application_binding_digest_b64u(),
         "local-router",
         "client",
         "x25519:local-dev-client-ephemeral-public-key",
@@ -262,7 +267,7 @@ fn local_valid_transcript_digest() -> PublicDigest32 {
 fn transcript_metadata() -> RouterTranscriptMetadataV1 {
     RouterTranscriptMetadataV1::new(
         "near-testnet",
-        "ed25519:local-dev-account-public-key",
+        application_binding_digest_b64u(),
         "local-router",
         "client",
         "x25519:local-dev-client-ephemeral-public-key",
@@ -1567,7 +1572,7 @@ fn local_signer_handler_rejects_payload_for_other_local_signer() {
         lifecycle,
         signer_set,
         "near-testnet",
-        "ed25519:local-dev-account-public-key",
+        application_binding_digest_b64u(),
         "local-router",
         "client",
         "x25519:local-dev-client-ephemeral-public-key",

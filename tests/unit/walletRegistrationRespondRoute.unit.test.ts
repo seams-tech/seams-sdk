@@ -67,10 +67,10 @@ function fakeGatewaySigner() {
 class CountingStrictRegistrationPort extends SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort {
   registerCalls = 0;
   requestPolicies: unknown[] = [];
-  override async register(input: never): Promise<never> {
+  override async registerWithTenantRoot(input: never): Promise<never> {
     this.registerCalls += 1;
     this.requestPolicies.push((input as { requestPolicy: unknown }).requestPolicy);
-    return (await super.register(input as never)) as never;
+    return (await super.registerWithTenantRoot(input as never)) as never;
   }
 }
 

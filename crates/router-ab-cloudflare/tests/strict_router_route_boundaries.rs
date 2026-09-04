@@ -47,6 +47,40 @@ fn strict_router_exposes_no_generic_split_derivation_route() {
 }
 
 #[test]
+fn strict_deriver_managed_restore_forward_refresh_uses_dedicated_handler() {
+    let deriver_rs = read_src_file("strict_worker/deriver.rs");
+    let route_body = extract_function_body(&deriver_rs, "handle_strict_deriver_fetch_v1");
+    for required in [
+        "CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH",
+        "CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1",
+        "parse_strict_deriver_json_v1",
+        "handle_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_v1",
+    ] {
+        assert!(
+            route_body.contains(required),
+            "strict Deriver forward-refresh route must include `{required}`"
+        );
+    }
+
+    let stage = route_body
+        .find("CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH")
+        .expect("managed-restore staging route should remain present");
+    let forward_refresh = route_body
+        .find("CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH")
+        .expect("managed-restore forward-refresh route should be present");
+    assert!(
+        stage < forward_refresh,
+        "managed restore must be staged before its forward refresh"
+    );
+
+    let paths_rs = read_src_file("paths.rs");
+    assert!(
+        paths_rs.contains("\"/router-ab/internal/deriver/tenant-root/restore/v1/forward-refresh\""),
+        "managed-restore forward-refresh path must be explicitly bound"
+    );
+}
+
+#[test]
 fn strict_router_normal_signing_routes_use_boundary_parsers() {
     let strict_worker_rs = read_src_file("strict_worker.rs");
     let route_body = extract_function_body(&strict_worker_rs, "handle_strict_router_fetch_v1");

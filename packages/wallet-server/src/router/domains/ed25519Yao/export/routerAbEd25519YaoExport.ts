@@ -88,6 +88,7 @@ import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
 } from '../recovery/routerAbEd25519YaoRecovery';
+import type { RouterAbEd25519YaoExportExecuteAdmissionContextV1 } from '../routerAbEd25519YaoGatewayEnvelope';
 import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 
 const EXPORT_AUTH_MAX_TTL_MS = 60_000;
@@ -142,6 +143,7 @@ export interface RouterAbEd25519YaoExportBackend {
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
   executeExport(
     request: RouterAbEd25519YaoExportExecuteRequestV1,
+    admissionRequest: RouterAbEd25519YaoExportExecuteAdmissionContextV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoExportBackendResult> | RouterAbEd25519YaoExportBackendResult;
 }
@@ -218,6 +220,7 @@ export type RouterAbEd25519YaoExportExecuteClaimV1 = {
   readonly exportKey: string;
   readonly sessionId: string;
   readonly executeFingerprint: string;
+  readonly admissionRequest: RouterAbEd25519YaoExportExecuteAdmissionContextV1;
 };
 
 export type RouterAbEd25519YaoExportExecutePreparationV1 =
@@ -995,7 +998,11 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
     try {
       outcome = {
         kind: 'backend_response',
-        result: await this.backend.executeExport(request, traceContext),
+        result: await this.backend.executeExport(
+          request,
+          preparation.claim.admissionRequest,
+          traceContext,
+        ),
       };
     } catch (error: unknown) {
       return this.failUncertainExecution(preparation.claim, error);
@@ -1062,6 +1069,7 @@ export class InMemoryRouterAbEd25519YaoExportService implements RouterAbEd25519Y
             exportKey: found.key,
             sessionId: session,
             executeFingerprint,
+            admissionRequest: current.request,
           },
         };
       case 'executing':
