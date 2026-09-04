@@ -28,11 +28,11 @@ use router_ab_core::{
     RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use router_ab_dev::{
-    build_local_activation_deriver_a_v1, build_local_activation_deriver_b_v1,
+    build_local_activation_deriver_a_with_server_v1,
+    build_local_activation_deriver_b_with_server_v1,
     generate_local_ed25519_yao_recipient_key_pair_v1,
     open_local_ed25519_yao_activation_deriver_a_input_v1,
     open_local_ed25519_yao_activation_deriver_b_input_v1, seal_local_ed25519_yao_package_v1,
-    LocalDeriverAWorkerConfigV1, LocalDeriverBWorkerConfigV1,
 };
 use router_ab_ecdsa_derivation::compose_public_identity_from_public_keys;
 use router_ab_ed25519_yao::Ed25519YaoRecipientPrivateKeyV1;
@@ -48,6 +48,12 @@ use router_ab_ed25519_yao_client::{
     import_activated_client_under_custody_seed_v1, ClientActivationEntropyV1,
 };
 use signer_core::ecdsa_role_local_client::command::RelayerPublicIdentityInput;
+use signer_core::ed25519_yao_derivation::{
+    derive_ed25519_yao_deriver_a_server_contribution_v1,
+    derive_ed25519_yao_deriver_b_server_contribution_v1, Ed25519YaoDeriverADerivationRootV1,
+    Ed25519YaoDeriverAServerContributionV1, Ed25519YaoDeriverBDerivationRootV1,
+    Ed25519YaoDeriverBServerContributionV1,
+};
 use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
 use signer_core::passkey_custody::{
     PasskeyCustodyEnvelopeBindingV1, EMAIL_OTP_FACTOR_KEK_VERSION_V1,
@@ -452,10 +458,11 @@ fn run_yao_circuit(
     )
     .expect("open Deriver B input");
 
+    let (server_a, server_b) = server_contributions();
     let (_, role_a) =
-        build_local_activation_deriver_a_v1(&deriver_a_config(), request_a).expect("Deriver A");
+        build_local_activation_deriver_a_with_server_v1(request_a, server_a).expect("Deriver A");
     let (_, role_b) =
-        build_local_activation_deriver_b_v1(&deriver_b_config(), request_b).expect("Deriver B");
+        build_local_activation_deriver_b_with_server_v1(request_b, server_b).expect("Deriver B");
     let (completion_a, completion_b) = run_roles(binding.session_id.into_bytes(), role_a, role_b);
     let transcript = completion_a.final_transcript();
     assert_eq!(transcript, completion_b.final_transcript());
@@ -827,30 +834,23 @@ fn seal_client_package(
     .expect("seal Client package")
 }
 
-fn deriver_a_config() -> LocalDeriverAWorkerConfigV1 {
-    LocalDeriverAWorkerConfigV1 {
-        deriver_a_url: "http://127.0.0.1:1".to_owned(),
-        deriver_b_url: "http://127.0.0.1:2".to_owned(),
-        envelope_hpke_private_key: "local-test".to_owned(),
-        ed25519_yao_derivation_root_hex: "22".repeat(32),
-        peer_signing_key: "local-test".to_owned(),
-        deriver_a_peer_verifying_key: "local-test".to_owned(),
-        deriver_b_peer_verifying_key: "local-test".to_owned(),
-        role_private_storage_path: "/tmp/ceremony-test-a-root".to_owned(),
-    }
-}
-
-fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
-    LocalDeriverBWorkerConfigV1 {
-        deriver_b_url: "http://127.0.0.1:2".to_owned(),
-        deriver_a_url: "http://127.0.0.1:1".to_owned(),
-        envelope_hpke_private_key: "local-test".to_owned(),
-        ed25519_yao_derivation_root_hex: "33".repeat(32),
-        peer_signing_key: "local-test".to_owned(),
-        deriver_a_peer_verifying_key: "local-test".to_owned(),
-        deriver_b_peer_verifying_key: "local-test".to_owned(),
-        role_private_storage_path: "/tmp/ceremony-test-b-root".to_owned(),
-    }
+fn server_contributions() -> (
+    Ed25519YaoDeriverAServerContributionV1,
+    Ed25519YaoDeriverBServerContributionV1,
+) {
+    let context = stable_key_derivation_context_v1(&application(), PARTICIPANT_IDS)
+        .expect("derivation context");
+    let server_a = derive_ed25519_yao_deriver_a_server_contribution_v1(
+        &Ed25519YaoDeriverADerivationRootV1::from_secret_bytes([0x22; 32]),
+        &context,
+    )
+    .expect("Deriver A server contribution");
+    let server_b = derive_ed25519_yao_deriver_b_server_contribution_v1(
+        &Ed25519YaoDeriverBDerivationRootV1::from_secret_bytes([0x33; 32]),
+        &context,
+    )
+    .expect("Deriver B server contribution");
+    (server_a, server_b)
 }
 
 fn run_roles(
