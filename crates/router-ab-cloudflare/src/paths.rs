@@ -76,6 +76,12 @@ pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE
 /// checkpoint the issuer-signed managed-restore artifacts.
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_PATH:
     &str = "/tenant-root-control-plane/restore/v1/authorize";
+/// Tenant-root control-plane cutover checkpoint read operation.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CUTOVER_READ_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/cutover/v1/read";
+/// Tenant-root control-plane cutover checkpoint mutation operation.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CUTOVER_WRITE_PRIVATE_REQUEST_PATH: &str =
+    "/tenant-root-control-plane/cutover/v1/write";
 /// Public Router endpoint for normal signing through the active SigningWorker.
 pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH: &str = "/router-ab/ed25519/sign";
 /// Public Router endpoint for preparing normal-signing round-1 material.

@@ -108,7 +108,7 @@ pub(crate) const CLOUDFLARE_TENANT_ROOT_CUTOVER_WRITE_PATH: &str =
     "/router-ab/internal/tenant-root/cutover/v1/write";
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const TENANT_ROOT_CUTOVER_STORAGE_KEY_V1: &str = "cutover/v1/state";
-const TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1: usize = 64 * 1024;
+pub(crate) const TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -228,6 +228,8 @@ const TENANT_ROOT_MANAGED_RESTORE_ATTEMPT_DOMAIN_V1: &[u8] =
     b"tenant_root_managed_restore_authorization_attempt_v1";
 #[cfg(feature = "workers-rs")]
 const ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1: &str = "ROUTER_TENANT_ROOT_CREATION_DO";
+#[cfg(feature = "workers-rs")]
+const TENANT_ROOT_CUTOVER_OBJECT_NAME_V1: &str = "tenant-root-cutover-v1";
 #[cfg(feature = "workers-rs")]
 const TENANT_ROOT_CREATION_REQUEST_MAX_BYTES_V1: usize =
     TENANT_ROOT_CREATION_JOURNAL_MAX_BASE64URL_BYTES_V1
@@ -1449,6 +1451,31 @@ async fn execute_cloudflare_router_tenant_root_creation_private_call_v1<
             format!("{label} Durable Object stub lookup failed: {error}"),
         )
     })?;
+    execute_cloudflare_router_tenant_root_stub_private_call_v1(
+        env,
+        stub,
+        path,
+        label,
+        request,
+        request_max_bytes,
+        response_max_bytes,
+    )
+    .await
+}
+
+#[cfg(feature = "workers-rs")]
+async fn execute_cloudflare_router_tenant_root_stub_private_call_v1<
+    TRequest: Serialize,
+    TResponse: DeserializeOwned,
+>(
+    env: &worker::Env,
+    stub: worker::Stub,
+    path: &str,
+    label: &str,
+    request: &TRequest,
+    request_max_bytes: usize,
+    response_max_bytes: usize,
+) -> RouterAbProtocolResult<TResponse> {
     let request_body = serde_json::to_string(request).map_err(|error| {
         RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -1502,6 +1529,59 @@ async fn execute_cloudflare_router_tenant_root_creation_private_call_v1<
         )));
     }
     decode_bounded_json_response(&mut response, response_max_bytes, label).await
+}
+
+#[cfg(feature = "workers-rs")]
+fn tenant_root_cutover_stub_v1(env: &worker::Env) -> RouterAbProtocolResult<worker::Stub> {
+    let namespace = env
+        .durable_object(ROUTER_TENANT_ROOT_CREATION_DO_BINDING_V1)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MissingLocalBinding,
+                format!("tenant-root cutover Durable Object namespace lookup failed: {error}"),
+            )
+        })?;
+    namespace
+        .get_by_name(TENANT_ROOT_CUTOVER_OBJECT_NAME_V1)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("tenant-root cutover Durable Object stub lookup failed: {error}"),
+            )
+        })
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_cutover_read_call_v1(
+    env: &worker::Env,
+) -> RouterAbProtocolResult<CloudflareTenantRootCutoverReadResponseV1> {
+    execute_cloudflare_router_tenant_root_stub_private_call_v1(
+        env,
+        tenant_root_cutover_stub_v1(env)?,
+        CLOUDFLARE_TENANT_ROOT_CUTOVER_READ_PATH,
+        "tenant-root cutover read",
+        &CloudflareTenantRootCutoverReadRequestV1 {},
+        TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1,
+        TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1,
+    )
+    .await
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_cutover_write_call_v1(
+    env: &worker::Env,
+    request: &CloudflareTenantRootCutoverWriteRequestV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootCutoverWriteResponseV1> {
+    execute_cloudflare_router_tenant_root_stub_private_call_v1(
+        env,
+        tenant_root_cutover_stub_v1(env)?,
+        CLOUDFLARE_TENANT_ROOT_CUTOVER_WRITE_PATH,
+        "tenant-root cutover write",
+        request,
+        TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1,
+        TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1,
+    )
+    .await
 }
 
 #[cfg(feature = "workers-rs")]
