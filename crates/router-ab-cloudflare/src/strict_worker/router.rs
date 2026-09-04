@@ -8,17 +8,26 @@ use super::*;
 use crate::durable_object::tenant_root_creation::{
     decode_bounded_json_request, derive_tenant_root_creation_authority_object_v1,
     execute_cloudflare_router_tenant_root_creation_active_state_read_call_v1,
+    execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1,
     execute_cloudflare_router_tenant_root_creation_cleanup_call_v1,
     execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1,
     execute_cloudflare_router_tenant_root_refresh_activation_call_v1,
+    execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1,
+    CloudflareTenantRootRefreshFenceV1,
 };
 use crate::tenant_root_control_plane::{
     execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
     CloudflareTenantRootControlPlaneInitialActivationRequestV1,
     CloudflareTenantRootControlPlaneRefreshActivationRequestV1,
 };
+#[cfg(feature = "strict-worker-router-entrypoint")]
+use crate::tenant_root_managed_backup_r2::TenantRootManagedBackupObjectCoordinatesV1;
 use crate::tenant_root_role_runtime::{
     CloudflareDeriverTenantRootCleanupResponseV1,
+    CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
+    CloudflareDeriverTenantRootManagedRestoreRequestV1,
+    CloudflareDeriverTenantRootManagedRestoreResponseV1,
+    CloudflareDeriverTenantRootManagedRestoreStatusV1,
     CloudflareDeriverTenantRootRefreshActivationRequestV1,
     CloudflareDeriverTenantRootRefreshActivationResponseV1,
     CloudflareDeriverTenantRootRefreshRequestV1, CloudflareDeriverTenantRootRefreshResponseV1,
@@ -59,6 +68,7 @@ use crate::{
     CloudflareTenantRootControlPlaneRoleCreationCommandRequestV1,
     CloudflareTenantRootControlPlaneRoleV1, CloudflareTenantRootCreationStatusV1,
     CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH,
+    CLOUDFLARE_ROUTER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH,
     CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH,
     TENANT_ROOT_CONTROL_PLANE_CREATE_TENANT_ROOT_REQUEST_MAX_BYTES_V1,
     TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
@@ -69,6 +79,306 @@ use crate::{
 struct CloudflareRouterTenantRootRefreshResponseV1 {
     activation_receipt_digest_b64u: String,
     lifecycle_revision: u64,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareRouterTenantRootManagedRestoreRequestV1 {
+    /// Exact control-plane-signed public role-unavailable state.
+    public_state_b64u: String,
+    /// Exact control-plane-signed one-use restore capability.
+    restore_capability_b64u: String,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+const TENANT_ROOT_MANAGED_RESTORE_REQUEST_MAX_BYTES_V1: usize = 128 * 1024;
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+struct VerifiedCloudflareRouterTenantRootManagedRestoreRequestV1 {
+    public_state_b64u: String,
+    restore_capability_b64u: String,
+    identity_b64u: String,
+    identity_digest: TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    active_epoch: u64,
+    active_lifecycle_revision: u64,
+    active_activation_receipt_b64u: String,
+    unavailable_role: TenantRootManagedRestoreRoleV1,
+    outage_observation_digest: TenantRootLifecycleReceiptDigestV1,
+    active_activation_receipt_digest: TenantRootLifecycleReceiptDigestV1,
+    capability: VerifiedTenantRootManagedRestoreCapabilityV1,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn decode_exact_managed_restore_wire_v1(
+    field: &'static str,
+    encoded: &str,
+) -> RouterAbProtocolResult<Vec<u8>> {
+    let bytes = crate::decode_base64url_bytes_v1(field, encoded)?;
+    if crate::encode_base64url_bytes_v1(&bytes) != encoded {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must use canonical unpadded base64url"),
+        ));
+    }
+    Ok(bytes)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn managed_restore_derivation_error_v1(
+    field: &'static str,
+    error: router_ab_core::RouterAbDerivationError,
+) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MalformedWirePayload,
+        format!("{field} was refused: {error}"),
+    )
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn verify_cloudflare_router_tenant_root_managed_restore_request_v1(
+    env: &Env,
+    request: CloudflareRouterTenantRootManagedRestoreRequestV1,
+) -> RouterAbProtocolResult<VerifiedCloudflareRouterTenantRootManagedRestoreRequestV1> {
+    let public_state_bytes = decode_exact_managed_restore_wire_v1(
+        "tenant-root managed-restore public state",
+        &request.public_state_b64u,
+    )?;
+    let signed_public_state =
+        TenantRootSignedManagedRestoreRoleUnavailableV1::decode_canonical_bytes(
+            &public_state_bytes,
+        )
+        .map_err(|error| {
+            managed_restore_derivation_error_v1("tenant-root managed-restore public state", error)
+        })?;
+    let reader = CloudflareWorkerEnvReaderV1::new(env);
+    let issuer_keys =
+        crate::env::parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(&reader)?;
+    let issuer_key_id = signed_public_state.issuer_key_id().to_owned();
+    let issuer_key = issuer_keys
+        .for_issuer_key_id(&issuer_key_id)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root managed-restore public-state issuer is not trusted by the Router",
+            )
+        })?;
+    let verified_public_state = signed_public_state
+        .verify(&issuer_key_id, issuer_key)
+        .map_err(|error| {
+            managed_restore_derivation_error_v1("tenant-root managed-restore public state", error)
+        })?;
+
+    let capability_bytes = decode_exact_managed_restore_wire_v1(
+        "tenant-root managed-restore capability",
+        &request.restore_capability_b64u,
+    )?;
+    let signed_capability =
+        TenantRootSignedManagedRestoreCapabilityV1::decode_canonical_bytes(&capability_bytes)
+            .map_err(|error| {
+                managed_restore_derivation_error_v1("tenant-root managed-restore capability", error)
+            })?;
+    if signed_capability.issuer_key_id() != verified_public_state.issuer_key_id() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore capability and public state use different issuers",
+        ));
+    }
+    let capability = signed_capability
+        .verify(
+            verified_public_state.state(),
+            verified_public_state.issuer_key_id(),
+            issuer_key,
+        )
+        .map_err(|error| {
+            managed_restore_derivation_error_v1("tenant-root managed-restore capability", error)
+        })?;
+    let identity_digest = verified_public_state
+        .state()
+        .active()
+        .identity()
+        .digest()
+        .map_err(|error| {
+            managed_restore_derivation_error_v1(
+                "tenant-root managed-restore public-state identity",
+                error,
+            )
+        })?;
+    let custody_lineage = verified_public_state.state().active().custody_lineage();
+    let identity_canonical_bytes = verified_public_state
+        .state()
+        .active()
+        .identity()
+        .canonical_bytes()
+        .map_err(|error| {
+            managed_restore_derivation_error_v1(
+                "tenant-root managed-restore public-state identity",
+                error,
+            )
+        })?;
+    let identity_b64u = crate::encode_base64url_bytes_v1(&identity_canonical_bytes);
+    let active_epoch = verified_public_state
+        .state()
+        .active()
+        .current()
+        .epoch()
+        .get()
+        .get();
+    let active_lifecycle_revision = verified_public_state.state().active().revision();
+    let active_activation_receipt_b64u = crate::encode_base64url_bytes_v1(
+        verified_public_state
+            .state()
+            .active()
+            .activation_receipt_bytes(),
+    );
+    let outage_observation_digest = verified_public_state.state().unavailable_receipt().digest();
+    let active_activation_receipt_digest = verified_public_state
+        .state()
+        .active()
+        .activation_receipt_digest();
+    if verified_public_state.unavailable_role() != capability.role()
+        || capability.identity_digest() != identity_digest
+        || capability.custody_lineage() != custody_lineage
+        || capability.activation_receipt_digest() != active_activation_receipt_digest
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore capability does not match the signed unavailable state",
+        ));
+    }
+    Ok(VerifiedCloudflareRouterTenantRootManagedRestoreRequestV1 {
+        public_state_b64u: request.public_state_b64u,
+        restore_capability_b64u: request.restore_capability_b64u,
+        identity_b64u,
+        identity_digest,
+        custody_lineage,
+        active_epoch,
+        active_lifecycle_revision,
+        active_activation_receipt_b64u,
+        unavailable_role: capability.role(),
+        outage_observation_digest,
+        active_activation_receipt_digest,
+        capability,
+    })
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn require_cloudflare_router_managed_restore_checkpoint_artifacts_v1(
+    active: &crate::durable_object::tenant_root_creation::CloudflareVerifiedTenantRootActiveStateV1,
+    authorization: &VerifiedCloudflareRouterTenantRootManagedRestoreRequestV1,
+) -> RouterAbProtocolResult<()> {
+    let identity_digest_b64u =
+        crate::encode_base64url_bytes_v1(authorization.identity_digest.as_bytes());
+    let custody_lineage_b64u = authorization.custody_lineage.to_base64url();
+    let activation_receipt_digest_b64u =
+        crate::encode_base64url_bytes_v1(authorization.active_activation_receipt_digest.as_bytes());
+
+    let crate::durable_object::tenant_root_creation::CloudflareTenantRootManagedRestoreFenceV1::Terminal {
+        challenge,
+        public_state_b64u,
+        capability_b64u,
+        ..
+    } = &active.managed_restore_fence
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root managed-restore authorization is not terminally checkpointed",
+        ));
+    };
+    let challenge_identity =
+        TenantRootIdentityV1::decode_canonical_bytes(&decode_exact_managed_restore_wire_v1(
+            "tenant-root managed-restore checkpoint identity",
+            &challenge.identity_b64u,
+        )?)
+        .map_err(|error| {
+            managed_restore_derivation_error_v1(
+                "tenant-root managed-restore checkpoint identity",
+                error,
+            )
+        })?;
+    let challenge_identity_canonical_bytes =
+        challenge_identity.canonical_bytes().map_err(|error| {
+            managed_restore_derivation_error_v1(
+                "tenant-root managed-restore checkpoint identity",
+                error,
+            )
+        })?;
+    let challenge_identity_b64u =
+        crate::encode_base64url_bytes_v1(&challenge_identity_canonical_bytes);
+    let challenge_identity_digest = challenge_identity.digest().map_err(|error| {
+        managed_restore_derivation_error_v1(
+            "tenant-root managed-restore checkpoint identity",
+            error,
+        )
+    })?;
+    let outage_observation_digest_b64u =
+        crate::encode_base64url_bytes_v1(authorization.outage_observation_digest.as_bytes());
+    if public_state_b64u != &authorization.public_state_b64u
+        || capability_b64u != &authorization.restore_capability_b64u
+        || challenge.identity_b64u != authorization.identity_b64u
+        || challenge_identity_b64u != authorization.identity_b64u
+        || challenge_identity_digest != authorization.identity_digest
+        || challenge.identity_digest_b64u != identity_digest_b64u
+        || challenge.custody_lineage_b64u != custody_lineage_b64u
+        || challenge.active_epoch != authorization.active_epoch
+        || challenge.active_lifecycle_revision != authorization.active_lifecycle_revision
+        || challenge.activation_receipt_b64u != authorization.active_activation_receipt_b64u
+        || challenge.activation_receipt_digest_b64u != activation_receipt_digest_b64u
+        || challenge.outage_observation_digest_b64u != outage_observation_digest_b64u
+        || challenge.unavailable_role != authorization.unavailable_role
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore authorization checkpoint does not match its signed scope",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn require_cloudflare_router_managed_restore_checkpoint_current_state_v1(
+    active: &crate::durable_object::tenant_root_creation::CloudflareVerifiedTenantRootActiveStateV1,
+    authorization: &VerifiedCloudflareRouterTenantRootManagedRestoreRequestV1,
+) -> RouterAbProtocolResult<()> {
+    let active_epoch = match active.activation_receipt.binding() {
+        TenantRootActivationReceiptBindingV1::InitialCreation(binding) => binding.epoch(),
+        TenantRootActivationReceiptBindingV1::RefreshSwap(binding) => binding.next_epoch(),
+    }
+    .get()
+    .get();
+    let active_activation_receipt_b64u =
+        crate::encode_base64url_bytes_v1(active.activation_receipt.canonical_bytes());
+    let identity_digest_b64u =
+        crate::encode_base64url_bytes_v1(authorization.identity_digest.as_bytes());
+    let custody_lineage_b64u = authorization.custody_lineage.to_base64url();
+    let crate::durable_object::tenant_root_creation::CloudflareTenantRootManagedRestoreFenceV1::Terminal {
+        challenge,
+        ..
+    } = &active.managed_restore_fence
+    else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root managed-restore authorization is not terminally checkpointed",
+        ));
+    };
+    if active.activation_receipt.digest() != authorization.active_activation_receipt_digest
+        || challenge.identity_b64u != authorization.identity_b64u
+        || challenge.identity_digest_b64u != identity_digest_b64u
+        || challenge.custody_lineage_b64u != custody_lineage_b64u
+        || challenge.unavailable_role != authorization.unavailable_role
+        || challenge.active_epoch != active_epoch
+        || challenge.active_lifecycle_revision != active.lifecycle_revision
+        || challenge.activation_receipt_b64u != active_activation_receipt_b64u
+        || challenge.activation_receipt_digest_b64u
+            != crate::encode_base64url_bytes_v1(active.activation_receipt.digest().as_bytes())
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore authorization checkpoint does not match current active state",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -464,9 +774,38 @@ async fn cleanup_cloudflare_router_retired_tenant_root_role_v1(
     )
     .await?;
     match cleaned {
-        CloudflareDeriverTenantRootCleanupResponseV1::RetiredDeleted { role, .. }
-            if role == activation.role =>
-        {
+        CloudflareDeriverTenantRootCleanupResponseV1::RetiredDeleted {
+            role, r2_deletion, ..
+        } if role == activation.role => {
+            let expected_coordinates = TenantRootManagedBackupObjectCoordinatesV1::new(
+                claimed_target.identity_digest(),
+                claimed_target.custody_lineage(),
+                match activation.role {
+                    CloudflareTenantRootCreateRoleV1::DeriverA => {
+                        TenantRootManagedRestoreRoleV1::DeriverA
+                    }
+                    CloudflareTenantRootCreateRoleV1::DeriverB => {
+                        TenantRootManagedRestoreRoleV1::DeriverB
+                    }
+                },
+                router_ab_core::TenantRootShareEpoch::new(activation.retired_epoch).map_err(
+                    |error| {
+                        managed_restore_derivation_error_v1(
+                            "tenant-root retired cleanup epoch",
+                            error,
+                        )
+                    },
+                )?,
+            );
+            if r2_deletion.managed_backup_object_key() != expected_coordinates.object_key()
+                || r2_deletion.provider_canary_object_key()
+                    != expected_coordinates.provider_canary_object_key()
+            {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                    "tenant-root retired cleanup returned unrelated managed-backup objects",
+                ));
+            }
             Ok(())
         }
         _ => Err(RouterAbProtocolError::new(
@@ -491,37 +830,275 @@ async fn execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
-async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
+fn tenant_root_deriver_role_for_peer_v1(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootCreateRoleV1> {
+    match peer.peer_role {
+        crate::CloudflareWorkerRoleV1::DeriverA => Ok(CloudflareTenantRootCreateRoleV1::DeriverA),
+        crate::CloudflareWorkerRoleV1::DeriverB => Ok(CloudflareTenantRootCreateRoleV1::DeriverB),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root managed restore can target only a Deriver",
+        )),
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn tenant_root_deriver_managed_restore_service_url_v1(
+    peer: &CloudflarePeerBindingV1,
+    path: &'static str,
+) -> RouterAbProtocolResult<String> {
+    peer.validate()?;
+    let host = match peer.peer_role {
+        crate::CloudflareWorkerRoleV1::DeriverA => "router-ab-deriver-a.internal",
+        crate::CloudflareWorkerRoleV1::DeriverB => "router-ab-deriver-b.internal",
+        _ => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root managed restore can target only a Deriver",
+            ));
+        }
+    };
+    Ok(format!("https://{host}{path}"))
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_cloudflare_deriver_tenant_root_managed_restore_service_call_v1(
     env: &Env,
-    runtime: &CloudflareRouterWorkerRuntimeV1,
-    request: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
-) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
-    let issued = execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
-        env, &request,
+    peer: &CloudflarePeerBindingV1,
+    request: &CloudflareDeriverTenantRootManagedRestoreRequestV1,
+    expected_capability_digest: TenantRootLifecycleReceiptDigestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootManagedRestoreResponseV1> {
+    let expected_role = tenant_root_deriver_role_for_peer_v1(peer)?;
+    let url = tenant_root_deriver_managed_restore_service_url_v1(
+        peer,
+        crate::CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH,
+    )?;
+    let response: CloudflareDeriverTenantRootManagedRestoreResponseV1 = crate::post_service_json(
+        env,
+        &peer.binding_name,
+        &url,
+        "tenant-root managed-restore staging request",
+        request,
     )
     .await?;
-    let deriver_a_request = CloudflareDeriverTenantRootRefreshRequestV1 {
-        refresh_context_b64u: issued.refresh_context_b64u.clone(),
-        role_refresh_command_b64u: issued.deriver_a_refresh_command_b64u,
+    if response.role != expected_role
+        || response.status
+            != CloudflareDeriverTenantRootManagedRestoreStatusV1::StagedForForwardRefresh
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root managed-restore response does not confirm staged forward refresh",
+        ));
+    }
+    let capability_digest = decode_exact_managed_restore_wire_v1(
+        "tenant-root managed-restore staging capability digest",
+        &response.capability_digest_b64u,
+    )?;
+    if capability_digest.as_slice() != expected_capability_digest.as_bytes() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            "tenant-root managed-restore staging response names a different capability",
+        ));
+    }
+    let terminal_receipt = decode_exact_managed_restore_wire_v1(
+        "tenant-root managed-restore staging terminal receipt",
+        &response.staging_terminal_receipt_b64u,
+    )?;
+    if !matches!(
+        TenantRootCommandTerminalReceiptV1::decode_canonical_bytes(&terminal_receipt).map_err(
+            |error| {
+                managed_restore_derivation_error_v1(
+                    "tenant-root managed-restore staging terminal receipt",
+                    error,
+                )
+            }
+        )?,
+        TenantRootCommandTerminalReceiptV1::Success(_)
+    ) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root managed-restore staging did not complete successfully",
+        ));
+    }
+    Ok(response)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_service_call_v1(
+    env: &Env,
+    peer: &CloudflarePeerBindingV1,
+    request: &CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    let expected_role = tenant_root_deriver_role_for_peer_v1(peer)?;
+    let url = tenant_root_deriver_managed_restore_service_url_v1(
+        peer,
+        crate::CLOUDFLARE_DERIVER_TENANT_ROOT_MANAGED_RESTORE_FORWARD_REFRESH_PRIVATE_REQUEST_PATH,
+    )?;
+    let response: CloudflareDeriverTenantRootRefreshResponseV1 = crate::post_service_json(
+        env,
+        &peer.binding_name,
+        &url,
+        "tenant-root managed-restore forward-refresh request",
+        request,
+    )
+    .await?;
+    if response.role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root managed-restore forward-refresh response names the wrong role",
+        ));
+    }
+    Ok(response)
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_service_call_with_retry_v1<
+    'a,
+>(
+    env: &'a Env,
+    peer: &'a CloudflarePeerBindingV1,
+    request: &'a CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    match execute_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_service_call_v1(
+        env, peer, request,
+    )
+    .await
+    {
+        Ok(response) => Ok(response),
+        Err(_) => {
+            execute_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_service_call_v1(
+                env, peer, request,
+            )
+            .await
+        }
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+enum CloudflareManagedRestoreForwardRefreshRequestOrNormalV1 {
+    Managed(CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1),
+    Normal(CloudflareDeriverTenantRootRefreshRequestV1),
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn execute_cloudflare_router_managed_restore_forward_refresh_request_with_retry_v1(
+    env: &Env,
+    peer: &CloudflarePeerBindingV1,
+    request: CloudflareManagedRestoreForwardRefreshRequestOrNormalV1,
+) -> RouterAbProtocolResult<CloudflareDeriverTenantRootRefreshResponseV1> {
+    match request {
+        CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Managed(request) => {
+            execute_cloudflare_deriver_tenant_root_managed_restore_forward_refresh_service_call_with_retry_v1(
+                env, peer, &request,
+            )
+            .await
+        }
+        CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Normal(request) => {
+            execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
+                env, peer, &request,
+            )
+            .await
+        }
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn refresh_attempt_packages_v1(
+    fence: CloudflareTenantRootRefreshFenceV1,
+) -> RouterAbProtocolResult<(String, String, String)> {
+    match fence {
+        CloudflareTenantRootRefreshFenceV1::Reserved { attempt }
+        | CloudflareTenantRootRefreshFenceV1::Executed { attempt } => Ok((
+            attempt.refresh_context_b64u,
+            attempt.deriver_a_refresh_command_b64u,
+            attempt.deriver_b_refresh_command_b64u,
+        )),
+        CloudflareTenantRootRefreshFenceV1::Open => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "tenant-root refresh attempt is not reserved",
+        )),
+        CloudflareTenantRootRefreshFenceV1::Terminal { .. } => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ConflictingPair,
+            "tenant-root refresh operation is terminal",
+        )),
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn replay_terminal_refresh_response_v1(
+    fence: &CloudflareTenantRootRefreshFenceV1,
+) -> RouterAbProtocolResult<Option<CloudflareRouterTenantRootRefreshResponseV1>> {
+    match fence {
+        CloudflareTenantRootRefreshFenceV1::Terminal {
+            outcome: crate::durable_object::tenant_root_creation::CloudflareTenantRootRefreshTerminalOutcomeV1::Completed,
+            response,
+            ..
+        } => Ok(Some(CloudflareRouterTenantRootRefreshResponseV1 {
+            activation_receipt_digest_b64u: response.activation_receipt_digest_b64u.clone(),
+            lifecycle_revision: response.lifecycle_revision,
+        })),
+        CloudflareTenantRootRefreshFenceV1::Terminal { .. } => {
+            Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ConflictingPair,
+                "tenant-root refresh operation is terminal without a successful activation",
+            ))
+        }
+        _ => Ok(None),
+    }
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn replay_cloudflare_router_terminal_refresh_cleanup_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    identity_digest_b64u: &str,
+    custody_lineage_b64u: &str,
+    activation_receipt_b64u: String,
+) -> RouterAbProtocolResult<()> {
+    let role_activation = CloudflareDeriverTenantRootRefreshActivationRequestV1 {
+        activation_receipt_b64u,
     };
-    let deriver_b_request = CloudflareDeriverTenantRootRefreshRequestV1 {
-        refresh_context_b64u: issued.refresh_context_b64u,
-        role_refresh_command_b64u: issued.deriver_b_refresh_command_b64u,
-    };
-    let (deriver_a, deriver_b) = futures::join!(
-        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
+    let (deriver_a_activation, deriver_b_activation) = futures::try_join!(
+        execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
             env,
             &runtime.bindings().deriver_a,
-            &deriver_a_request,
+            &role_activation,
         ),
-        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
+        execute_cloudflare_deriver_tenant_root_refresh_activation_service_call_v1(
             env,
             &runtime.bindings().deriver_b,
-            &deriver_b_request,
+            &role_activation,
         ),
-    );
-    let deriver_a = deriver_a?;
-    let deriver_b = deriver_b?;
+    )?;
+    futures::try_join!(
+        cleanup_cloudflare_router_retired_tenant_root_role_v1(
+            env,
+            runtime,
+            identity_digest_b64u,
+            custody_lineage_b64u,
+            &deriver_a_activation,
+        ),
+        cleanup_cloudflare_router_retired_tenant_root_role_v1(
+            env,
+            runtime,
+            identity_digest_b64u,
+            custody_lineage_b64u,
+            &deriver_b_activation,
+        ),
+    )?;
+    Ok(())
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn finish_cloudflare_router_tenant_root_refresh_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    identity_digest_b64u: &str,
+    custody_lineage_b64u: &str,
+    deriver_a: CloudflareDeriverTenantRootRefreshResponseV1,
+    deriver_b: CloudflareDeriverTenantRootRefreshResponseV1,
+) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
     let issued_activation =
         execute_cloudflare_tenant_root_control_plane_refresh_activation_service_call_v1(
             env,
@@ -563,15 +1140,15 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
         cleanup_cloudflare_router_retired_tenant_root_role_v1(
             env,
             runtime,
-            &request.identity_digest_b64u,
-            &request.custody_lineage_b64u,
+            identity_digest_b64u,
+            custody_lineage_b64u,
             &deriver_a_activation,
         ),
         cleanup_cloudflare_router_retired_tenant_root_role_v1(
             env,
             runtime,
-            &request.identity_digest_b64u,
-            &request.custody_lineage_b64u,
+            identity_digest_b64u,
+            custody_lineage_b64u,
             &deriver_b_activation,
         ),
     )?;
@@ -580,11 +1157,252 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
         lifecycle_revision: activated.lifecycle_revision,
     })
 }
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
+) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
+    let identity_digest = TenantRootIdentityDigestV1::from_bytes(
+        crate::decode_base64url_bytes_v1(
+            "tenant-root refresh identity digest",
+            &request.identity_digest_b64u,
+        )?
+        .try_into()
+        .map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "tenant-root refresh identity digest must contain exactly 32 bytes",
+            )
+        })?,
+    );
+    let custody_lineage = TenantRootCustodyLineageId::from_base64url(&request.custody_lineage_b64u)
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("tenant-root refresh custody lineage is invalid: {error}"),
+            )
+        })?;
+    let active =
+        execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+            env,
+            identity_digest,
+            custody_lineage,
+        )
+        .await?;
+    if let Some(response) = replay_terminal_refresh_response_v1(&active.refresh_fence)? {
+        replay_cloudflare_router_terminal_refresh_cleanup_v1(
+            env,
+            runtime,
+            &request.identity_digest_b64u,
+            &request.custody_lineage_b64u,
+            crate::encode_base64url_bytes_v1(active.activation_receipt.canonical_bytes()),
+        )
+        .await?;
+        return Ok(response);
+    }
+    let (refresh_context_b64u, deriver_a_refresh_command_b64u, deriver_b_refresh_command_b64u) =
+        match active.refresh_fence {
+            CloudflareTenantRootRefreshFenceV1::Open => {
+                let issued =
+                    execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
+                        env, &request,
+                    )
+                    .await?;
+                let reserved =
+                    execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1(
+                        env,
+                        identity_digest,
+                        custody_lineage,
+                        issued.refresh_context_b64u,
+                        issued.deriver_a_refresh_command_b64u,
+                        issued.deriver_b_refresh_command_b64u,
+                    )
+                    .await?;
+                refresh_attempt_packages_v1(reserved.refresh_fence)?
+            }
+            fence => refresh_attempt_packages_v1(fence)?,
+        };
+    let deriver_a_request = CloudflareDeriverTenantRootRefreshRequestV1 {
+        refresh_context_b64u: refresh_context_b64u.clone(),
+        role_refresh_command_b64u: deriver_a_refresh_command_b64u,
+    };
+    let deriver_b_request = CloudflareDeriverTenantRootRefreshRequestV1 {
+        refresh_context_b64u,
+        role_refresh_command_b64u: deriver_b_refresh_command_b64u,
+    };
+    let (deriver_a, deriver_b) = futures::join!(
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
+            env,
+            &runtime.bindings().deriver_a,
+            &deriver_a_request,
+        ),
+        execute_cloudflare_deriver_tenant_root_refresh_service_call_with_retry_v1(
+            env,
+            &runtime.bindings().deriver_b,
+            &deriver_b_request,
+        ),
+    );
+    let deriver_a = deriver_a?;
+    let deriver_b = deriver_b?;
+    finish_cloudflare_router_tenant_root_refresh_v1(
+        env,
+        runtime,
+        &request.identity_digest_b64u,
+        &request.custody_lineage_b64u,
+        deriver_a,
+        deriver_b,
+    )
+    .await
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+async fn coordinate_cloudflare_router_tenant_root_managed_restore_v1(
+    env: &Env,
+    runtime: &CloudflareRouterWorkerRuntimeV1,
+    request: CloudflareRouterTenantRootManagedRestoreRequestV1,
+) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
+    let authorization =
+        verify_cloudflare_router_tenant_root_managed_restore_request_v1(env, request)?;
+    let active =
+        execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+            env,
+            authorization.identity_digest,
+            authorization.custody_lineage,
+        )
+        .await?;
+    require_cloudflare_router_managed_restore_checkpoint_artifacts_v1(&active, &authorization)?;
+    if let Some(response) = replay_terminal_refresh_response_v1(&active.refresh_fence)? {
+        replay_cloudflare_router_terminal_refresh_cleanup_v1(
+            env,
+            runtime,
+            &crate::encode_base64url_bytes_v1(authorization.identity_digest.as_bytes()),
+            &authorization.custody_lineage.to_base64url(),
+            crate::encode_base64url_bytes_v1(active.activation_receipt.canonical_bytes()),
+        )
+        .await?;
+        return Ok(response);
+    }
+    require_cloudflare_router_managed_restore_checkpoint_current_state_v1(&active, &authorization)?;
+
+    let (refresh_context_b64u, deriver_a_refresh_command_b64u, deriver_b_refresh_command_b64u) =
+        match active.refresh_fence {
+            CloudflareTenantRootRefreshFenceV1::Open => {
+                let deriver = match authorization.unavailable_role {
+                    TenantRootManagedRestoreRoleV1::DeriverA => &runtime.bindings().deriver_a,
+                    TenantRootManagedRestoreRoleV1::DeriverB => &runtime.bindings().deriver_b,
+                };
+                execute_cloudflare_deriver_tenant_root_managed_restore_service_call_v1(
+                    env,
+                    deriver,
+                    &CloudflareDeriverTenantRootManagedRestoreRequestV1 {
+                        public_state_b64u: authorization.public_state_b64u.clone(),
+                        restore_capability_b64u: authorization.restore_capability_b64u.clone(),
+                    },
+                    authorization.capability.capability_digest(),
+                )
+                .await?;
+
+                let refresh_commands_request =
+                    CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 {
+                        identity_digest_b64u: crate::encode_base64url_bytes_v1(
+                            authorization.identity_digest.as_bytes(),
+                        ),
+                        custody_lineage_b64u: authorization.custody_lineage.to_base64url(),
+                    };
+                let issued =
+                    execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
+                        env,
+                        &refresh_commands_request,
+                    )
+                    .await?;
+                let reserved =
+                    execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1(
+                        env,
+                        authorization.identity_digest,
+                        authorization.custody_lineage,
+                        issued.refresh_context_b64u,
+                        issued.deriver_a_refresh_command_b64u,
+                        issued.deriver_b_refresh_command_b64u,
+                    )
+                    .await?;
+                refresh_attempt_packages_v1(reserved.refresh_fence)?
+            }
+            fence => refresh_attempt_packages_v1(fence)?,
+        };
+
+    let deriver_a_request = match authorization.unavailable_role {
+        TenantRootManagedRestoreRoleV1::DeriverA => {
+            CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Managed(
+                CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1 {
+                    public_state_b64u: authorization.public_state_b64u.clone(),
+                    restore_capability_b64u: authorization.restore_capability_b64u.clone(),
+                    refresh_context_b64u: refresh_context_b64u.clone(),
+                    role_refresh_command_b64u: deriver_a_refresh_command_b64u,
+                },
+            )
+        }
+        TenantRootManagedRestoreRoleV1::DeriverB => {
+            CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Normal(
+                CloudflareDeriverTenantRootRefreshRequestV1 {
+                    refresh_context_b64u: refresh_context_b64u.clone(),
+                    role_refresh_command_b64u: deriver_a_refresh_command_b64u,
+                },
+            )
+        }
+    };
+    let deriver_b_request = match authorization.unavailable_role {
+        TenantRootManagedRestoreRoleV1::DeriverA => {
+            CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Normal(
+                CloudflareDeriverTenantRootRefreshRequestV1 {
+                    refresh_context_b64u,
+                    role_refresh_command_b64u: deriver_b_refresh_command_b64u,
+                },
+            )
+        }
+        TenantRootManagedRestoreRoleV1::DeriverB => {
+            CloudflareManagedRestoreForwardRefreshRequestOrNormalV1::Managed(
+                CloudflareDeriverTenantRootManagedRestoreForwardRefreshRequestV1 {
+                    public_state_b64u: authorization.public_state_b64u,
+                    restore_capability_b64u: authorization.restore_capability_b64u,
+                    refresh_context_b64u,
+                    role_refresh_command_b64u: deriver_b_refresh_command_b64u,
+                },
+            )
+        }
+    };
+    let (deriver_a, deriver_b) = futures::join!(
+        execute_cloudflare_router_managed_restore_forward_refresh_request_with_retry_v1(
+            env,
+            &runtime.bindings().deriver_a,
+            deriver_a_request,
+        ),
+        execute_cloudflare_router_managed_restore_forward_refresh_request_with_retry_v1(
+            env,
+            &runtime.bindings().deriver_b,
+            deriver_b_request,
+        ),
+    );
+    finish_cloudflare_router_tenant_root_refresh_v1(
+        env,
+        runtime,
+        &crate::encode_base64url_bytes_v1(authorization.identity_digest.as_bytes()),
+        &authorization.custody_lineage.to_base64url(),
+        deriver_a?,
+        deriver_b?,
+    )
+    .await
+}
 use router_ab_core::{
     PublicDigest32, RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningPrepareRequestV2,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootActivationReceiptBindingV1,
+    TenantRootCommandTerminalReceiptV1, TenantRootCustodyLineageId, TenantRootIdentityDigestV1,
+    TenantRootIdentityV1, TenantRootLifecycleReceiptDigestV1, TenantRootManagedRestoreRoleV1,
+    TenantRootSignedManagedRestoreCapabilityV1, TenantRootSignedManagedRestoreRoleUnavailableV1,
+    VerifiedTenantRootManagedRestoreCapabilityV1,
 };
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -804,6 +1622,36 @@ pub(super) async fn handle_strict_router_fetch_v1(
             };
         return match coordinate_cloudflare_router_tenant_root_refresh_v1(&env, &runtime, parsed)
             .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(err) => cloudflare_protocol_error_response_v1(err),
+        };
+    }
+    if path == CLOUDFLARE_ROUTER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH {
+        if let Err(err) = require_cloudflare_internal_service_auth_request_v1(&request, &env) {
+            return cloudflare_private_service_auth_error_response_v1(err);
+        }
+        if request.method() != Method::Post {
+            return Response::error("tenant-root managed-restore route requires POST", 405);
+        }
+        let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
+            Ok(runtime) => runtime,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let parsed: CloudflareRouterTenantRootManagedRestoreRequestV1 =
+            match decode_bounded_json_request(
+                &mut request,
+                TENANT_ROOT_MANAGED_RESTORE_REQUEST_MAX_BYTES_V1,
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(err) => return cloudflare_protocol_error_response_v1(err),
+            };
+        return match coordinate_cloudflare_router_tenant_root_managed_restore_v1(
+            &env, &runtime, parsed,
+        )
+        .await
         {
             Ok(response) => Response::from_json(&response),
             Err(err) => cloudflare_protocol_error_response_v1(err),
@@ -1674,6 +2522,52 @@ mod prewarm_tests {
 
         assert_eq!(result, Ok(()));
         assert_eq!(started.get(), 3);
+    }
+}
+
+#[cfg(all(test, feature = "strict-worker-router-entrypoint"))]
+mod refresh_replay_tests {
+    use super::replay_terminal_refresh_response_v1;
+    use crate::durable_object::tenant_root_creation::{
+        CloudflareTenantRootRefreshActivationResponseV1, CloudflareTenantRootRefreshAttemptV1,
+        CloudflareTenantRootRefreshFenceV1, CloudflareTenantRootRefreshTerminalOutcomeV1,
+    };
+
+    #[test]
+    fn completed_refresh_replay_returns_the_persisted_activation_response() {
+        let persisted = CloudflareTenantRootRefreshActivationResponseV1 {
+            activation_receipt_digest_b64u: "persisted-receipt-digest".to_owned(),
+            lifecycle_revision: 42,
+        };
+        let fence = CloudflareTenantRootRefreshFenceV1::Terminal {
+            attempt: CloudflareTenantRootRefreshAttemptV1 {
+                attempt_id_b64u: "attempt".to_owned(),
+                identity_digest_b64u: "identity".to_owned(),
+                custody_lineage_b64u: "lineage".to_owned(),
+                command_digest_b64u: "command-a".to_owned(),
+                deriver_b_command_digest_b64u: "command-b".to_owned(),
+                ceremony_context_digest_b64u: "context".to_owned(),
+                refresh_context_b64u: "refresh-context".to_owned(),
+                deriver_a_refresh_command_b64u: "refresh-command-a".to_owned(),
+                deriver_b_refresh_command_b64u: "refresh-command-b".to_owned(),
+                session_id_b64u: "session".to_owned(),
+                nonce_b64u: "nonce".to_owned(),
+                current_epoch: 7,
+                next_epoch: 8,
+                expected_control_plane_revision: 41,
+            },
+            outcome: CloudflareTenantRootRefreshTerminalOutcomeV1::Completed,
+            response: persisted.clone(),
+        };
+
+        let replay = replay_terminal_refresh_response_v1(&fence)
+            .expect("completed terminal state must replay")
+            .expect("completed terminal state must return a response");
+        assert_eq!(
+            replay.activation_receipt_digest_b64u,
+            persisted.activation_receipt_digest_b64u
+        );
+        assert_eq!(replay.lifecycle_revision, persisted.lifecycle_revision);
     }
 }
 

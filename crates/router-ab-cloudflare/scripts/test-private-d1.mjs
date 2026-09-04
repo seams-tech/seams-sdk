@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { createHash, generateKeyPairSync, sign as signEd25519 } from 'node:crypto';
+import {
+  createHash,
+  createPrivateKey,
+  generateKeyPairSync,
+  sign as signEd25519,
+} from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Miniflare } from 'miniflare';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import {
   finalize_ecdsa_client_bootstrap_v1,
   EcdsaRoleLocalPresignSessionV1,
@@ -37,8 +43,15 @@ const ecdsaPresignSessionInitPath =
   '/router-ab/signing-worker/ecdsa-derivation/presignature-session/init';
 const ecdsaPresignSessionStepPath =
   '/router-ab/signing-worker/ecdsa-derivation/presignature-session/step';
-const tenantRootRefreshPath = '/router-ab/internal/tenant-root/refresh/v1/execute';
+const tenantRootManagedRestorePath = '/router-ab/internal/tenant-root/restore/v1/execute';
+const tenantRootManagedRestoreChallengePath =
+  '/tenant-root-control-plane/restore/v1/challenge';
+const tenantRootManagedRestoreAuthorizePath =
+  '/tenant-root-control-plane/restore/v1/authorize';
 const ed25519ExecutePath = '/router-ab/router/ed25519-yao/execute';
+const managedRestoreAuthenticationDomain =
+  'tenant_root_managed_restore_incident_authorization_authentication_v1';
+const ed25519Pkcs8SeedPrefix = Buffer.from('302e020100300506032b657004220420', 'hex');
 const ecdsaClientWasmPath = resolve(
   repoRoot,
   'wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client_bg.wasm',
@@ -308,6 +321,52 @@ async function postWorkerJson(worker, path, body, additionalHeaders = {}) {
   );
 }
 
+function canonicalField(bytes) {
+  const value = Buffer.from(bytes);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(value.length);
+  return Buffer.concat([length, value]);
+}
+
+function ed25519PrivateKeyFromSeed(seedB64u) {
+  const seed = Buffer.from(seedB64u, 'base64url');
+  assert.equal(seed.length, 32, 'managed-restore signer seed must be 32 bytes');
+  return createPrivateKey({
+    key: Buffer.concat([ed25519Pkcs8SeedPrefix, seed]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+}
+
+function signManagedRestoreAuthorization(bindingB64u, managedRestore, unavailableRole) {
+  const binding = Buffer.from(bindingB64u, 'base64url');
+  const authenticationInput = Buffer.concat([
+    canonicalField(Buffer.from(managedRestoreAuthenticationDomain, 'utf8')),
+    canonicalField(binding),
+  ]);
+  const custody =
+    unavailableRole === 'deriver_a'
+      ? managedRestore.deriver_a_custody
+      : managedRestore.deriver_b_custody;
+  const operationsSignature = signEd25519(
+    null,
+    authenticationInput,
+    ed25519PrivateKeyFromSeed(managedRestore.operations.signing_seed_b64u),
+  );
+  const custodySignature = signEd25519(
+    null,
+    authenticationInput,
+    ed25519PrivateKeyFromSeed(custody.signing_seed_b64u),
+  );
+  assert.equal(operationsSignature.length, 64);
+  assert.equal(custodySignature.length, 64);
+  return Buffer.concat([
+    binding,
+    canonicalField(operationsSignature),
+    canonicalField(custodySignature),
+  ]).toString('base64url');
+}
+
 async function testTenantRootRoleSchema(database, expectedRole) {
   const tableInfo = await database.prepare('PRAGMA table_info(tenant_root_role_shares)').all();
   assert.deepEqual(
@@ -537,9 +596,86 @@ async function testTenantRootCreationOperatingPath(topology, fixture, databases)
     'Deriver B must write only under its role-private prefix',
   );
 
+  const secondBytes = await expectOk(
+    await postWorkerJson(
+      router,
+      tenantRootCreationPath,
+      fixture.tenant_root_creation.second_tenant,
+    ),
+    'second-tenant tenant-root creation operating path',
+  );
+  const second = JSON.parse(secondBytes.toString('utf8'));
+  assert.equal(second.revision, 1, 'second-tenant genesis must start at revision 1');
+  assert.deepEqual(
+    second.status.kind,
+    'ready',
+    'second-tenant Router creation must wait for both role installations',
+  );
+  assert.notEqual(
+    second.identity_digest_b64u,
+    first.identity_digest_b64u,
+    'second-tenant creation must use a distinct tenant identity',
+  );
+  assert.notEqual(
+    second.custody_lineage_b64u,
+    first.custody_lineage_b64u,
+    'second-tenant creation must use a distinct custody lineage',
+  );
+  const secondIdentityDigestHex = Buffer.from(second.identity_digest_b64u, 'base64url').toString(
+    'hex',
+  );
+  const [secondRowsA, secondRowsB] = await Promise.all([
+    databases.deriverA
+      .prepare(
+        `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+         FROM tenant_root_role_shares
+         WHERE tenant_identity_digest_hex = ? AND tenant_root_share_epoch = 1
+           AND role = 'deriver_a' AND lifecycle = 'active'`,
+      )
+      .bind(secondIdentityDigestHex)
+      .all(),
+    databases.deriverB
+      .prepare(
+        `SELECT tenant_identity_digest_hex, custody_lineage_b64u, ciphertext_json
+         FROM tenant_root_role_shares
+         WHERE tenant_identity_digest_hex = ? AND tenant_root_share_epoch = 1
+           AND role = 'deriver_b' AND lifecycle = 'active'`,
+      )
+      .bind(secondIdentityDigestHex)
+      .all(),
+  ]);
+  assert.equal(
+    secondRowsA.results.length,
+    1,
+    'Deriver A must persist one active row for the second tenant',
+  );
+  assert.equal(
+    secondRowsB.results.length,
+    1,
+    'Deriver B must persist one active row for the second tenant',
+  );
+  assert.equal(secondRowsA.results[0].custody_lineage_b64u, second.custody_lineage_b64u);
+  assert.equal(secondRowsB.results[0].custody_lineage_b64u, second.custody_lineage_b64u);
+  assert.notEqual(
+    secondRowsA.results[0].ciphertext_json,
+    activeA.ciphertext_json,
+    'Deriver A must keep second-tenant ciphertext separate from the first tenant',
+  );
+  assert.notEqual(
+    secondRowsB.results[0].ciphertext_json,
+    activeB.ciphertext_json,
+    'Deriver B must keep second-tenant ciphertext separate from the first tenant',
+  );
+
   return {
-    identity_digest_b64u: first.identity_digest_b64u,
-    custody_lineage_b64u: first.custody_lineage_b64u,
+    tenantRoot: {
+      identity_digest_b64u: first.identity_digest_b64u,
+      custody_lineage_b64u: first.custody_lineage_b64u,
+    },
+    secondTenantRoot: {
+      identity_digest_b64u: second.identity_digest_b64u,
+      custody_lineage_b64u: second.custody_lineage_b64u,
+    },
   };
 }
 
@@ -1137,6 +1273,15 @@ async function testEcdsaNormalSigning(topology, ecdsa) {
     );
     const signature = Buffer.from(signed.signature65_b64u, 'base64url');
     assert.equal(signature.length, 65, 'ECDSA normal-signing must return a recoverable signature');
+    assert.ok(
+      signature[64] === 0 || signature[64] === 1,
+      'ECDSA normal-signing recovery id must be a canonical parity byte',
+    );
+    assert.equal(
+      secp256k1.verify(signature.subarray(0, 64), signingDigestBytes, presign.groupPublicKey),
+      true,
+      'ECDSA normal-signing signature must verify against the activated aggregate public key',
+    );
     return { prepare: prepared, response: signed };
   } finally {
     presign.client.free();
@@ -1223,19 +1368,177 @@ async function captureValidActivationDelivery(
   };
 }
 
-async function testTenantRootRefreshOperatingPath(topology, tenantRoot) {
+async function testTenantRootManagedRestoreOperatingPath(
+  topology,
+  fixture,
+  tenantRoot,
+  databases,
+) {
   const router = await topology.getWorker('router');
-  const response = await postWorkerJson(router, tenantRootRefreshPath, tenantRoot);
-  const bytes = await expectOk(response, 'live tenant-root refresh');
+  const controlPlane = await topology.getWorker('tenant-root-control-plane');
+  const identityDigestHex = Buffer.from(tenantRoot.identity_digest_b64u, 'base64url').toString(
+    'hex',
+  );
+  const deleted = await databases.deriverA
+    .prepare(
+      `DELETE FROM tenant_root_role_shares
+       WHERE tenant_identity_digest_hex = ? AND custody_lineage_b64u = ?
+         AND role = 'deriver_a' AND lifecycle = 'active'`,
+    )
+    .bind(identityDigestHex, tenantRoot.custody_lineage_b64u)
+    .run();
+  assert.equal(
+    deleted.meta.changes,
+    1,
+    'managed-restore proof must begin with exactly one unavailable Deriver A active share',
+  );
+
+  const issuedAtMs = Date.now();
+  const challengeRequest = {
+    ...tenantRoot,
+    incident_id: 'private-d1-managed-restore-deriver-a-v1',
+    outage_observation_digest_b64u: createHash('sha256')
+      .update('private-d1-managed-restore-outage-v1')
+      .update(Buffer.from(tenantRoot.identity_digest_b64u, 'base64url'))
+      .digest('base64url'),
+    issued_at_ms: issuedAtMs,
+    expires_at_ms: issuedAtMs + 60_000,
+    nonce_b64u: createHash('sha256')
+      .update('private-d1-managed-restore-nonce-v1')
+      .update(Buffer.from(tenantRoot.identity_digest_b64u, 'base64url'))
+      .digest('base64url'),
+    unavailable_role: 'deriver_a',
+  };
+  const challengeBytes = await expectOk(
+    await postWorkerJson(
+      controlPlane,
+      tenantRootManagedRestoreChallengePath,
+      challengeRequest,
+    ),
+    'managed-restore dual-authorization challenge',
+  );
+  const challengeRetryBytes = await expectOk(
+    await postWorkerJson(
+      controlPlane,
+      tenantRootManagedRestoreChallengePath,
+      challengeRequest,
+    ),
+    'managed-restore challenge exact retry',
+  );
+  assert.deepEqual(
+    challengeRetryBytes,
+    challengeBytes,
+    'managed-restore challenge retry must replay the exact persisted binding',
+  );
+  const challenge = JSON.parse(challengeBytes.toString('utf8'));
+  assert.equal(challenge.identity_digest_b64u, tenantRoot.identity_digest_b64u);
+  assert.equal(challenge.custody_lineage_b64u, tenantRoot.custody_lineage_b64u);
+  assert.equal(challenge.unavailable_role, 'deriver_a');
+  assert.equal(typeof challenge.authorization_binding_b64u, 'string');
+
+  const incidentAuthorizationB64u = signManagedRestoreAuthorization(
+    challenge.authorization_binding_b64u,
+    fixture.managed_restore,
+    challenge.unavailable_role,
+  );
+  const authorizeRequest = {
+    identity_digest_b64u: tenantRoot.identity_digest_b64u,
+    custody_lineage_b64u: tenantRoot.custody_lineage_b64u,
+    incident_authorization_b64u: incidentAuthorizationB64u,
+  };
+  const authorizationBytes = await expectOk(
+    await postWorkerJson(
+      controlPlane,
+      tenantRootManagedRestoreAuthorizePath,
+      authorizeRequest,
+    ),
+    'managed-restore dual authorization',
+  );
+  const authorizationRetryBytes = await expectOk(
+    await postWorkerJson(
+      controlPlane,
+      tenantRootManagedRestoreAuthorizePath,
+      authorizeRequest,
+    ),
+    'managed-restore authorization exact retry',
+  );
+  assert.deepEqual(
+    authorizationRetryBytes,
+    authorizationBytes,
+    'managed-restore authorization retry must replay exact issuer artifacts',
+  );
+  const authorization = JSON.parse(authorizationBytes.toString('utf8'));
+  assert.equal(authorization.incident_authorization_b64u, incidentAuthorizationB64u);
+
+  const response = await postWorkerJson(router, tenantRootManagedRestorePath, {
+    public_state_b64u: authorization.public_state_b64u,
+    restore_capability_b64u: authorization.capability_b64u,
+  });
+  const bytes = await expectOk(response, 'live managed restore and mandatory forward refresh');
   const refresh = JSON.parse(bytes.toString('utf8'));
   assert.equal(
     typeof refresh.activation_receipt_digest_b64u,
     'string',
-    'tenant-root refresh must return its activation receipt digest',
+    'managed restore must return its forward-refresh activation receipt digest',
   );
   assert.ok(
     Number.isInteger(refresh.lifecycle_revision) && refresh.lifecycle_revision > 0,
-    'tenant-root refresh must advance the lifecycle revision',
+    'managed restore must advance the lifecycle revision',
+  );
+  const retryBytes = await expectOk(
+    await postWorkerJson(router, tenantRootManagedRestorePath, {
+      public_state_b64u: authorization.public_state_b64u,
+      restore_capability_b64u: authorization.capability_b64u,
+    }),
+    'live managed-restore exact retry',
+  );
+  assert.deepEqual(
+    retryBytes,
+    bytes,
+    'the same managed-restore request must replay exact completed refresh bytes',
+  );
+  const [activeA, activeB] = await Promise.all([
+    databases.deriverA
+      .prepare(
+        `SELECT tenant_root_share_epoch, lifecycle FROM tenant_root_role_shares
+         WHERE tenant_identity_digest_hex = ? AND custody_lineage_b64u = ?`,
+      )
+      .bind(identityDigestHex, tenantRoot.custody_lineage_b64u)
+      .all(),
+    databases.deriverB
+      .prepare(
+        `SELECT tenant_root_share_epoch, lifecycle FROM tenant_root_role_shares
+         WHERE tenant_identity_digest_hex = ? AND custody_lineage_b64u = ?`,
+      )
+      .bind(identityDigestHex, tenantRoot.custody_lineage_b64u)
+      .all(),
+  ]);
+  assert.deepEqual(activeA.results, [{ tenant_root_share_epoch: 2, lifecycle: 'active' }]);
+  assert.deepEqual(activeB.results, [{ tenant_root_share_epoch: 2, lifecycle: 'active' }]);
+  const [backupBucketA, backupBucketB] = await Promise.all([
+    topology.getR2Bucket(managedBackupR2Binding, 'deriver-a'),
+    topology.getR2Bucket(managedBackupR2Binding, 'deriver-b'),
+  ]);
+  const [backupsA, backupsB] = await Promise.all([backupBucketA.list(), backupBucketB.list()]);
+  const backupPrefix = `tenant-root-managed-backup/v1`;
+  const backupCoordinates = `${identityDigestHex}/${tenantRoot.custody_lineage_b64u}`;
+  const backupKeysA = backupsA.objects.map((object) => object.key);
+  const backupKeysB = backupsB.objects.map((object) => object.key);
+  assert.ok(
+    !backupKeysA.includes(`${backupPrefix}/deriver-a/${backupCoordinates}/1.bin`),
+    'Deriver A retired backup must be absent',
+  );
+  assert.ok(
+    !backupKeysB.includes(`${backupPrefix}/deriver-b/${backupCoordinates}/1.bin`),
+    'Deriver B retired backup must be absent',
+  );
+  assert.ok(
+    backupKeysA.includes(`${backupPrefix}/deriver-a/${backupCoordinates}/2.bin`),
+    'Deriver A active backup must remain available',
+  );
+  assert.ok(
+    backupKeysB.includes(`${backupPrefix}/deriver-b/${backupCoordinates}/2.bin`),
+    'Deriver B active backup must remain available',
   );
   return refresh;
 }
@@ -1258,9 +1561,32 @@ async function captureEcdsaActivationAfterRefresh(topology, ecdsa) {
   };
 }
 
-async function testTenantRootSelectorIsolation(topology, fixture, tenantRoot) {
+async function testTenantRootSelectorIsolation(
+  topology,
+  fixture,
+  tenantRoot,
+  secondTenantRoot,
+  firstTenantActivation,
+  secondTenantActivation,
+) {
   const router = await topology.getWorker('router');
   const envelope = buildEd25519ExecuteRequest(fixture, 'activation', tenantRoot);
+  assert.notEqual(
+    secondTenantRoot.identity_digest_b64u,
+    tenantRoot.identity_digest_b64u,
+    'second-tenant isolation proof must use a distinct tenant identity',
+  );
+  assert.notEqual(
+    secondTenantRoot.custody_lineage_b64u,
+    tenantRoot.custody_lineage_b64u,
+    'second-tenant isolation proof must use a distinct custody lineage',
+  );
+  assert.notDeepEqual(
+    secondTenantActivation.publicReceipt.registered_public_key,
+    firstTenantActivation.publicReceipt.registered_public_key,
+    'independent tenant roots must produce independent Ed25519 activation keys',
+  );
+
   const alternateTenantRoot = {
     identity_digest_b64u: tenantRoot.identity_digest_b64u,
     custody_lineage_b64u: Buffer.alloc(16, 0x9c).toString('base64url'),
@@ -1283,7 +1609,6 @@ async function testTenantRootSelectorIsolation(topology, fixture, tenantRoot) {
     undefined,
     'a rejected tenant-root selector must not reach SigningWorker activation',
   );
-
 }
 
 async function postSigningWorkerDelivery(worker, delivery) {
@@ -1370,7 +1695,8 @@ async function main() {
     await testTenantRootRoleSchema(databases.deriverB, 'deriver_b');
     await testTenantRootCommandReplayCasGuard(databases.deriverA, 'deriver_a');
     await testTenantRootCommandReplayCasGuard(databases.deriverB, 'deriver_b');
-    const tenantRoot = await testTenantRootCreationOperatingPath(topology, fixture, databases);
+    const tenantRoots = await testTenantRootCreationOperatingPath(topology, fixture, databases);
+    const tenantRoot = tenantRoots.tenantRoot;
     await applyMigrations(
       topology,
       signingWorkerD1Binding,
@@ -1385,7 +1711,18 @@ async function main() {
     );
     const ecdsa = await testEcdsaRegistrationAndActivation(topology, fixture, tenantRoot, jwtSigner);
     const edBeforeRefresh = await captureValidActivationDelivery(topology, fixture, tenantRoot);
-    await testTenantRootRefreshOperatingPath(topology, tenantRoot);
+    const edSecondTenant = await captureValidActivationDelivery(
+      topology,
+      fixture,
+      tenantRoots.secondTenantRoot,
+      'second_tenant_activation',
+    );
+    await testTenantRootManagedRestoreOperatingPath(
+      topology,
+      fixture,
+      tenantRoot,
+      databases,
+    );
 
     const ecdsaAfterRefresh = await captureEcdsaActivationAfterRefresh(topology, ecdsa);
     assert.deepEqual(
@@ -1416,14 +1753,32 @@ async function main() {
       edBeforeRefresh.publicReceipt.registered_public_key,
       'Ed25519 public key must remain identical after tenant-root refresh',
     );
+    const edSecondTenantAfterRefresh = await captureValidActivationDelivery(
+      topology,
+      fixture,
+      tenantRoots.secondTenantRoot,
+      'second_tenant_activation_after_refresh',
+    );
+    assert.deepEqual(
+      edSecondTenantAfterRefresh.publicReceipt.registered_public_key,
+      edSecondTenant.publicReceipt.registered_public_key,
+      'tenant B must retain its Ed25519 key and remain operational after tenant A refresh',
+    );
     signingWorkerDeliveryTarget = 'fixture-signing-worker';
     await testEcdsaNormalSigning(topology, ecdsa);
-    await testTenantRootSelectorIsolation(topology, fixture, tenantRoot);
+    await testTenantRootSelectorIsolation(
+      topology,
+      fixture,
+      tenantRoot,
+      tenantRoots.secondTenantRoot,
+      edBeforeRefresh,
+      edSecondTenant,
+    );
     await testConcurrentActivationAndLostResponse(fixture, edBeforeRefresh.delivery);
   } finally {
     await topology.dispose();
   }
-  console.log('real workerd D1 tenant-root refresh and signing continuity tests passed');
+  console.log('real workerd D1 managed restore and signing continuity tests passed');
 }
 
 await main();

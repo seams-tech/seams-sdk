@@ -1374,7 +1374,16 @@ function buildTenantRootControlPlaneEnvironment(input) {
         ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:
           variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON,
         ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON:
-          variables.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON,
+          manual(`${environmentName}-tenant-root-grant-authority-verifying-keys-json`),
+        ROUTER_AB_OPERATIONS_INCIDENT_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-operations-incident-verifying-key-hex`,
+        ),
+        ROUTER_AB_DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-deriver-a-custody-authority-verifying-key-hex`,
+        ),
+        ROUTER_AB_DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: manual(
+          `${environmentName}-deriver-b-custody-authority-verifying-key-hex`,
+        ),
         ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
           variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },

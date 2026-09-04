@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use router_ab_core::{
     TenantRootCustodyLineageId, TenantRootIdentityDigestV1, TenantRootManagedBackupBindingV1,
-    TenantRootManagedRestoreRoleV1, TenantRootShareEpoch,
+    TenantRootManagedRestoreRoleV1, TenantRootOperationalErasureClaimV1, TenantRootShareEpoch,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
@@ -151,6 +151,85 @@ impl CloudflareTenantRootManagedBackupPutOutcomeV1 {
         match self {
             Self::Stored { metadata } | Self::Replay { metadata } => metadata,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CloudflareTenantRootManagedBackupObjectDeletionStatusV1 {
+    /// The object was present before deletion and absent in the verified read after it.
+    Removed,
+    /// The object was already absent before deletion and absent in the verified read after it.
+    AlreadyAbsent,
+}
+
+/// R2 object-removal evidence with the required limitation on key erasure.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootManagedBackupDeletionReceiptV1 {
+    managed_backup_object_key: String,
+    provider_canary_object_key: String,
+    managed_backup: CloudflareTenantRootManagedBackupObjectDeletionStatusV1,
+    provider_canary: CloudflareTenantRootManagedBackupObjectDeletionStatusV1,
+    #[serde(deserialize_with = "deserialize_operational_erasure_claim")]
+    cryptographic_erasure: TenantRootOperationalErasureClaimV1,
+}
+
+impl CloudflareTenantRootManagedBackupDeletionReceiptV1 {
+    fn new(
+        coordinates: TenantRootManagedBackupObjectCoordinatesV1,
+        managed_backup: CloudflareTenantRootManagedBackupObjectDeletionStatusV1,
+        provider_canary: CloudflareTenantRootManagedBackupObjectDeletionStatusV1,
+    ) -> Self {
+        Self {
+            managed_backup_object_key: coordinates.object_key(),
+            provider_canary_object_key: coordinates.provider_canary_object_key(),
+            managed_backup,
+            provider_canary,
+            cryptographic_erasure:
+                TenantRootOperationalErasureClaimV1::CryptographicErasureUnverified,
+        }
+    }
+
+    pub(crate) fn managed_backup_object_key(&self) -> &str {
+        &self.managed_backup_object_key
+    }
+
+    pub(crate) fn provider_canary_object_key(&self) -> &str {
+        &self.provider_canary_object_key
+    }
+
+    pub(crate) const fn managed_backup(
+        &self,
+    ) -> CloudflareTenantRootManagedBackupObjectDeletionStatusV1 {
+        self.managed_backup
+    }
+
+    pub(crate) const fn provider_canary(
+        &self,
+    ) -> CloudflareTenantRootManagedBackupObjectDeletionStatusV1 {
+        self.provider_canary
+    }
+
+    pub(crate) const fn cryptographic_erasure(&self) -> TenantRootOperationalErasureClaimV1 {
+        self.cryptographic_erasure
+    }
+}
+
+fn deserialize_operational_erasure_claim<'de, D>(
+    deserializer: D,
+) -> Result<TenantRootOperationalErasureClaimV1, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+    match value.as_str() {
+        "cryptographic_erasure_unverified" => {
+            Ok(TenantRootOperationalErasureClaimV1::CryptographicErasureUnverified)
+        }
+        _ => Err(serde::de::Error::custom(
+            "unsupported tenant-root operational erasure claim",
+        )),
     }
 }
 
@@ -406,16 +485,35 @@ impl CloudflareTenantRootManagedBackupStoreV1 {
         Ok((verified, metadata))
     }
 
-    /// Deletes one role-local backup object by its complete object coordinates.
+    /// Deletes one role-local backup object and verifies both R2 keys are absent.
     pub(crate) async fn delete_coordinates(
         &self,
         coordinates: TenantRootManagedBackupObjectCoordinatesV1,
-    ) -> worker::Result<()> {
+    ) -> worker::Result<CloudflareTenantRootManagedBackupDeletionReceiptV1> {
         self.require_role(coordinates.role)?;
-        self.bucket
-            .delete(coordinates.provider_canary_object_key())
-            .await?;
-        self.bucket.delete(coordinates.object_key()).await
+        let provider_canary_key = coordinates.provider_canary_object_key();
+        let managed_backup_key = coordinates.object_key();
+        let provider_canary_was_present = self
+            .bucket
+            .head(provider_canary_key.clone())
+            .await?
+            .is_some();
+        let managed_backup_was_present = self
+            .bucket
+            .head(managed_backup_key.clone())
+            .await?
+            .is_some();
+
+        self.bucket.delete(provider_canary_key.clone()).await?;
+        self.bucket.delete(managed_backup_key.clone()).await?;
+        require_r2_object_absent(&self.bucket, &provider_canary_key, "provider canary").await?;
+        require_r2_object_absent(&self.bucket, &managed_backup_key, "managed-backup").await?;
+
+        Ok(CloudflareTenantRootManagedBackupDeletionReceiptV1::new(
+            coordinates,
+            object_deletion_status(managed_backup_was_present),
+            object_deletion_status(provider_canary_was_present),
+        ))
     }
 
     fn require_role(&self, role: TenantRootManagedRestoreRoleV1) -> worker::Result<()> {
@@ -426,6 +524,31 @@ impl CloudflareTenantRootManagedBackupStoreV1 {
         }
         Ok(())
     }
+}
+
+#[cfg(feature = "workers-rs")]
+fn object_deletion_status(
+    was_present: bool,
+) -> CloudflareTenantRootManagedBackupObjectDeletionStatusV1 {
+    if was_present {
+        CloudflareTenantRootManagedBackupObjectDeletionStatusV1::Removed
+    } else {
+        CloudflareTenantRootManagedBackupObjectDeletionStatusV1::AlreadyAbsent
+    }
+}
+
+#[cfg(feature = "workers-rs")]
+async fn require_r2_object_absent(
+    bucket: &Bucket,
+    object_key: &str,
+    object_kind: &str,
+) -> worker::Result<()> {
+    if bucket.head(object_key.to_owned()).await?.is_some() {
+        return Err(backup_store_error(format!(
+            "{object_kind} managed-backup object remained after deletion"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "workers-rs")]
@@ -665,6 +788,42 @@ mod tests {
         assert!(decode_hex_digest(&encoded.to_uppercase()).is_none());
         assert!(decode_hex_digest("00").is_none());
         assert!(decode_hex_digest(&encoded[..63]).is_none());
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn deletion_receipt_keeps_r2_states_and_unverified_erasure_explicit() {
+        let coordinates = coordinates(TenantRootManagedRestoreRoleV1::DeriverA);
+        let receipt = CloudflareTenantRootManagedBackupDeletionReceiptV1::new(
+            coordinates,
+            CloudflareTenantRootManagedBackupObjectDeletionStatusV1::Removed,
+            CloudflareTenantRootManagedBackupObjectDeletionStatusV1::AlreadyAbsent,
+        );
+
+        assert_eq!(
+            receipt.managed_backup_object_key(),
+            coordinates.object_key()
+        );
+        assert_eq!(
+            receipt.provider_canary_object_key(),
+            coordinates.provider_canary_object_key()
+        );
+        assert_eq!(
+            receipt.managed_backup(),
+            CloudflareTenantRootManagedBackupObjectDeletionStatusV1::Removed
+        );
+        assert_eq!(
+            receipt.provider_canary(),
+            CloudflareTenantRootManagedBackupObjectDeletionStatusV1::AlreadyAbsent
+        );
+        assert_eq!(
+            receipt.cryptographic_erasure(),
+            TenantRootOperationalErasureClaimV1::CryptographicErasureUnverified
+        );
+        let encoded = serde_json::to_value(&receipt).expect("deletion receipt json");
+        let decoded: CloudflareTenantRootManagedBackupDeletionReceiptV1 =
+            serde_json::from_value(encoded).expect("deletion receipt roundtrip");
+        assert_eq!(decoded, receipt);
     }
 
     #[cfg(feature = "workers-rs")]

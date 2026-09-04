@@ -15,6 +15,10 @@ pub const CLOUDFLARE_ROUTER_TENANT_ROOT_CREATION_PRIVATE_REQUEST_PATH: &str =
 /// Authenticated private Router endpoint for refreshing one tenant root.
 pub const CLOUDFLARE_ROUTER_TENANT_ROOT_REFRESH_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/internal/tenant-root/refresh/v1/execute";
+/// Authenticated private Router endpoint for coordinating one managed role
+/// restore and its mandatory forward refresh.
+pub const CLOUDFLARE_ROUTER_TENANT_ROOT_MANAGED_RESTORE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/tenant-root/restore/v1/execute";
 /// Tenant-root control-plane issuer operation: mint one role creation command.
 ///
 /// Private, internal-service-authenticated. The request names only an
@@ -64,6 +68,14 @@ pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_CLEANUP_COMMAND_PRIVATE_REQUEST_P
 /// canonical public installation, backup, and provider-canary artifacts.
 pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_PATH: &str =
     "/tenant-root-control-plane/creation/v1/activate";
+/// Tenant-root control-plane issuer operation: mint one DO-bound managed
+/// restore authorization challenge.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_PATH:
+    &str = "/tenant-root-control-plane/restore/v1/challenge";
+/// Tenant-root control-plane issuer operation: verify one incident token and
+/// checkpoint the issuer-signed managed-restore artifacts.
+pub const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_PATH:
+    &str = "/tenant-root-control-plane/restore/v1/authorize";
 /// Public Router endpoint for normal signing through the active SigningWorker.
 pub const CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH: &str = "/router-ab/ed25519/sign";
 /// Public Router endpoint for preparing normal-signing round-1 material.
@@ -355,6 +367,16 @@ const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_UR
     "/tenant-root-control-plane/creation/v1/activate"
 );
 #[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/restore/v1/challenge"
+);
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_URL: &str = concat!(
+    "https://router-ab-tenant-root-control-plane.internal",
+    "/tenant-root-control-plane/restore/v1/authorize"
+);
+#[cfg(feature = "workers-rs")]
 const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_ACTIVATION_URL: &str = concat!(
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/activate"
@@ -579,6 +601,18 @@ pub(crate) const fn cloudflare_tenant_root_control_plane_cleanup_command_service
 pub(crate) const fn cloudflare_tenant_root_control_plane_initial_activation_service_url(
 ) -> &'static str {
     CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_INITIAL_ACTIVATION_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_managed_restore_challenge_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_CHALLENGE_PRIVATE_REQUEST_URL
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) const fn cloudflare_tenant_root_control_plane_managed_restore_authorize_service_url(
+) -> &'static str {
+    CLOUDFLARE_TENANT_ROOT_CONTROL_PLANE_MANAGED_RESTORE_AUTHORIZE_PRIVATE_REQUEST_URL
 }
 
 #[cfg(feature = "workers-rs")]

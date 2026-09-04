@@ -138,6 +138,8 @@ pub use signing_worker::*;
 mod env;
 pub use env::*;
 use env::{
+    parse_cloudflare_custody_authority_verifiers_v1,
+    parse_cloudflare_operations_incident_verifier_v1,
     parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1,
     parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1,
     parse_cloudflare_tenant_root_creation_role_verifying_keys_v1, DERIVER_A_FORBIDDEN_ENV_KEYS,
@@ -1866,6 +1868,10 @@ pub struct CloudflareTenantRootControlPlaneBindingsV1 {
     pub issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
     /// Authorities trusted to sign a tenant-root creation grant.
     pub grant_authority_verifying_keys: CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1,
+    /// Public verifier for operations incident evidence.
+    pub operations_incident_verifier: CloudflareOperationsIncidentVerifierV1,
+    /// Separate public custody-authority verifiers for Deriver A and Deriver B.
+    pub custody_authority_verifiers: CloudflareCustodyAuthorityVerifiersV1,
     /// Public role signing key ID the issuer names for Deriver A.
     pub deriver_a_signing_key_id: String,
     /// Public role signing key ID the issuer names for Deriver B.
@@ -1885,6 +1891,8 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
         issuer_signing_key: CloudflareTenantRootControlPlaneIssuerSigningKeyBindingV1,
         issuer_verifying_keys: CloudflareTenantRootControlPlaneIssuerVerifyingKeysV1,
         grant_authority_verifying_keys: CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1,
+        operations_incident_verifier: CloudflareOperationsIncidentVerifierV1,
+        custody_authority_verifiers: CloudflareCustodyAuthorityVerifiersV1,
         deriver_a_signing_key_id: String,
         deriver_b_signing_key_id: String,
         deriver_a_verifying_key: [u8; 32],
@@ -1894,6 +1902,8 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
             issuer_signing_key,
             issuer_verifying_keys,
             grant_authority_verifying_keys,
+            operations_incident_verifier,
+            custody_authority_verifiers,
             deriver_a_signing_key_id,
             deriver_b_signing_key_id,
             deriver_a_verifying_key,
@@ -1911,6 +1921,17 @@ impl CloudflareTenantRootControlPlaneBindingsV1 {
         self.issuer_signing_key.validate()?;
         self.issuer_verifying_keys.validate()?;
         self.grant_authority_verifying_keys.validate()?;
+        self.operations_incident_verifier.validate()?;
+        self.custody_authority_verifiers.validate()?;
+        let operations_verifying_key = self.operations_incident_verifier.verifying_key_bytes();
+        if self.custody_authority_verifiers.deriver_a() == &operations_verifying_key
+            || self.custody_authority_verifiers.deriver_b() == &operations_verifying_key
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "operations incident and custody authority verifiers must be distinct",
+            ));
+        }
         // A grant authority key may never double as the issuer key: the issuer
         // could then authorize the tenant creations it goes on to sign.
         for (grant_key_id, grant_key) in self.grant_authority_verifying_keys.keys() {
@@ -14291,6 +14312,8 @@ pub fn parse_cloudflare_tenant_root_control_plane_bindings_v1(
         )?,
         parse_cloudflare_tenant_root_control_plane_issuer_verifying_keys_v1(env)?,
         parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(env)?,
+        parse_cloudflare_operations_incident_verifier_v1(env)?,
+        parse_cloudflare_custody_authority_verifiers_v1(env)?,
         deriver_a_signing_key_id,
         deriver_b_signing_key_id,
         deriver_a_verifying_key,

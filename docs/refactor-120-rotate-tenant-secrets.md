@@ -2166,30 +2166,29 @@ count toward progress.
 - [x] Regenerate only the ECDSA bindings and vectors changed by that operating
       path, then delete the ECDSA deployment-root adapter so registration has
       no fallback.
-- [ ] Prove that ECDSA registration preserves the expected public key and
+- [x] Prove that ECDSA registration preserves the expected public key and
       address through the live server path.
 
-Ed25519 outer-protocol wiring and continuity move to the next implementation
-slice. Refresh, recovery, release-wide cleanup, dashboards, and broad evidence
-generation remain in Milestones 3 and 4; they do not block this ECDSA vertical
-path or count toward its completion.
+Release-wide cleanup, dashboards, managed restore, interruption recovery, and
+broad evidence generation remain in Milestones 3 and 4; they do not block this
+ECDSA/Ed25519 continuity path or count toward its completion.
 
 ### Milestone 3: make refresh and recovery operational
 
-- [ ] Wire the existing refresh protocol through per-tenant locking, the
+- [x] Wire the existing refresh protocol through per-tenant locking, the
       Router-owned public checkpoint, both role-private stores, and the same
       managed-backup store used by creation.
-- [ ] Keep the current epoch active until both next-epoch role records, backup
+- [x] Keep the current epoch active until both next-epoch role records, backup
       objects, installation evidences, and the activation receipt verify.
-- [ ] Resume or clean up every persisted interruption state without ever
+- [x] Resume or clean up every persisted interruption state without ever
       combining mixed epochs or regenerating a committed random share.
-- [ ] Wire one-role managed restore followed immediately by forward refresh;
+- [x] Wire one-role managed restore followed immediately by forward refresh;
       keep tenant-controlled recovery packages on their existing independent
       path.
-- [ ] Retire old role records and destroy old online/backup wrapping-key
+- [x] Retire old role records and destroy old online/backup wrapping-key
       versions after activation. Record `cryptographic_erasure_unverified` when
       the selected provider cannot prove destruction.
-- [ ] Add one operating-path test proving refresh preserves ECDSA and Ed25519
+- [x] Add one operating-path test proving refresh preserves ECDSA and Ed25519
       outputs, normal signing stays available, and another tenant is unchanged.
 
 ### Milestone 4: release and remove the old path
@@ -3043,31 +3042,59 @@ Phase 4 pure cutover evidence on 2026-08-31:
   remain open. The canonical manifest digest is frozen at
   `3042742aca6b9f308591d79c8bed255c56dbf9be76026731038162c03e399753`.
 
-### Current green evidence (2026-09-02)
+### Current green evidence (2026-09-04)
 
-- The `router-ab-core --all-targets` suite is green. The exact refresh
-  transition derives the next pair as the authoritative active pair plus the
-  accepted A/B coefficients, re-verifies the stored `BothRoles` installation
-  evidence, and rejects root-preserving and coefficient-as-share substitutions.
-  Core refresh-checkpoint evidence is 5/5, the independent audit is clean, and
-  the activation-receipt suite passes 12/12.
-- Cloudflare feature and no-feature checks and all-targets are green: the
-  `workers-rs` library passes 129 tests, `tests/bindings.rs` passes 225 tests,
-  and all integration targets pass. The Durable Object refresh checkpoint
-  suite passes 21/21.
-- The dormant A/B role-signing boundary passes 2/2, and the TypeScript unit
-  typecheck is green.
-- The regenerated boundary inventory records 932 files and 17,451 hits with
-  34 generated artifacts; its generated-artifact digest is
-  `f681b31eefbbc145b965523d81a960539eb9e59c3e116fa8897f35cf8fdc8ee4`.
+- `cargo test --manifest-path crates/router-ab-core/Cargo.toml --all-targets`
+  exited 0. The run included `tenant_root_refresh_checkpoint` 5/5,
+  `tenant_root_lifecycle` 31/31, `tenant_root_managed_restore_transport` 5/5,
+  and `tenant_root_activation_receipt` 12/12.
+- `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml
+  --features workers-rs --all-targets` exited 0, including
+  `strict_router_route_boundaries` 7/7, `tenant_root_cutover_lifecycle` 7/7,
+  and `tenant_root_revision_manifest` 10/10. The run emitted existing
+  dead-code warnings.
+- `pnpm -C tests type-check:unit` exited 0.
+- Commits `33dc2ca71` and `c00a5d376` provide the live Router/Deriver refresh
+  coordinator, Router-owned checkpoint, role-private persistence, managed
+  backups, and activation gating. After rebuilding all five workers,
+  `pnpm -C crates/router-ab-cloudflare test:private-d1` exited 0; its direct
+  `node ./scripts/test-private-d1.mjs` operating path printed `real workerd D1
+  tenant-root refresh and signing continuity tests passed`. The strengthened
+  assertions cover ECDSA identity/address continuity, Ed25519 public-key
+  continuity, verified normal signing, second-tenant isolation, and selector
+  rejection. Repeating the completed Router refresh returns the exact response
+  bytes and lifecycle revision without creating another epoch.
+- The private-D1 operating path now deletes one active Deriver A row, reserves
+  a restore challenge in the Router-owned Durable Object, verifies the fixed
+  operations-incident plus role-custody authorization pair, restores only the
+  unavailable role, and immediately forward-refreshes both roles. Exact
+  challenge, authorization, Router execution, and terminal cleanup retries are
+  idempotent. The completed run preserves the ECDSA identity and address,
+  preserves the Ed25519 public key, completes normal signing, and leaves the
+  second tenant unchanged.
+- A retry after the Router-owned object reaches its terminal refresh checkpoint
+  replays both exact role activation receipts and both idempotent retired-role
+  cleanup paths before returning the saved response. Retired cleanup commands
+  derive their complete signed time window from the persisted activation
+  receipt, so a retry reproduces the same authorization bytes. The live exact
+  retry exercises the already-absent D1 and R2 cleanup outcomes. The proof also
+  verifies that both epoch-1 role rows and managed-backup objects are absent
+  while both epoch-2 rows and backups remain active. The Cloudflare operational
+  profile records `cryptographic_erasure_unverified` because Worker Secrets do
+  not provide a per-tenant key-destruction proof.
+- `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --features
+  workers-rs,strict-worker-router-entrypoint --lib` passes 222/222. The
+  managed-restore authorization suite passes 6/6, and the Durable Object tests
+  preserve exact reserved, checkpointed, and terminal artifacts across JSON
+  restart.
 
-These are local development results. Phase 0 remains gated because there is no
-deployed signed architecture-selection record or deployed benchmark evidence;
-no public activation route or production activation caller consumes the dormant
-paths. Env/Wrangler provisioning, role-private persistence integration,
-destruction probes, `managed_healing_v1`, provider qualification, live
-orchestration, physical tenant mapping, cutover, drills, and production
-role-key provisioning remain open.
+The active implementation checklist is 20/26 checked (76.9%); 6 remain
+unchecked. These are local source and focused-test results. No deployed
+benchmark or architecture-selection record, staging/cutover result, provider
+key-destruction proof, or exhaustive crash/fault-injection coverage is
+evidenced; those release gates remain open. The deployed control-plane pipeline
+now requires the operations-incident and independent Deriver A/B custody-
+authority verifying keys as environment-scoped public variables.
 
 ### Phase 5: release the client-transparent path
 

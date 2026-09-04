@@ -34,6 +34,9 @@ const TENANT_ROOT_ROLE_A_KEY_ID: &str = "miniflare-tenant-root-role-a-v1";
 const TENANT_ROOT_ROLE_B_KEY_ID: &str = "miniflare-tenant-root-role-b-v1";
 const TENANT_ROOT_ROLE_A_SEED: [u8; 32] = [0xa4; 32];
 const TENANT_ROOT_ROLE_B_SEED: [u8; 32] = [0xb4; 32];
+const TENANT_ROOT_OPERATIONS_SEED: [u8; 32] = [0xd2; 32];
+const TENANT_ROOT_DERIVER_A_CUSTODY_SEED: [u8; 32] = [0xd4; 32];
+const TENANT_ROOT_DERIVER_B_CUSTODY_SEED: [u8; 32] = [0xd6; 32];
 
 #[derive(Serialize)]
 struct RequestFixture {
@@ -49,16 +52,32 @@ struct PrivateD1Fixture {
     deriver_b_env: BTreeMap<String, String>,
     signing_worker_env: BTreeMap<String, String>,
     tenant_root_control_plane_env: BTreeMap<String, String>,
+    managed_restore: ManagedRestoreAuthorizationFixture,
     tenant_root_creation: TenantRootCreationFixture,
     role_retry: RequestFixture,
     activation: RequestFixture,
     activation_after_refresh: RequestFixture,
+    second_tenant_activation: RequestFixture,
+    second_tenant_activation_after_refresh: RequestFixture,
+}
+
+#[derive(Serialize)]
+struct ManagedRestoreAuthorizationFixture {
+    operations: ManagedRestoreSignerFixture,
+    deriver_a_custody: ManagedRestoreSignerFixture,
+    deriver_b_custody: ManagedRestoreSignerFixture,
+}
+
+#[derive(Serialize)]
+struct ManagedRestoreSignerFixture {
+    signing_seed_b64u: String,
 }
 
 #[derive(Serialize)]
 struct TenantRootCreationFixture {
     interrupted: TenantRootCreationRequestFixture,
     fresh: TenantRootCreationRequestFixture,
+    second_tenant: TenantRootCreationRequestFixture,
 }
 
 #[derive(Serialize)]
@@ -87,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         deriver_b_env: cloudflare_deriver_b_env(deriver_b_local, router_local)?,
         signing_worker_env: cloudflare_signing_worker_env(signing_worker_local)?,
         tenant_root_control_plane_env: cloudflare_tenant_root_control_plane_env(deriver_a_local)?,
+        managed_restore: managed_restore_authorization_fixture(),
         tenant_root_creation: tenant_root_creation_fixture()?,
         role_retry: request_fixture(
             "role-private-d1-retry",
@@ -112,18 +132,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             deriver_b_public,
             signing_worker_public,
         )?,
+        second_tenant_activation: request_fixture(
+            "second-tenant-ed25519",
+            [0x33; 32],
+            "initial",
+            deriver_a_public,
+            deriver_b_public,
+            signing_worker_public,
+        )?,
+        second_tenant_activation_after_refresh: request_fixture(
+            "second-tenant-ed25519",
+            [0x33; 32],
+            "after-refresh",
+            deriver_a_public,
+            deriver_b_public,
+            signing_worker_public,
+        )?,
     };
     println!("{}", serde_json::to_string(&fixture)?);
     Ok(())
+}
+
+fn managed_restore_authorization_fixture() -> ManagedRestoreAuthorizationFixture {
+    ManagedRestoreAuthorizationFixture {
+        operations: managed_restore_signer_fixture(TENANT_ROOT_OPERATIONS_SEED),
+        deriver_a_custody: managed_restore_signer_fixture(TENANT_ROOT_DERIVER_A_CUSTODY_SEED),
+        deriver_b_custody: managed_restore_signer_fixture(TENANT_ROOT_DERIVER_B_CUSTODY_SEED),
+    }
+}
+
+fn managed_restore_signer_fixture(signing_seed: [u8; 32]) -> ManagedRestoreSignerFixture {
+    ManagedRestoreSignerFixture {
+        signing_seed_b64u: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signing_seed),
+    }
 }
 
 fn tenant_root_creation_fixture() -> Result<TenantRootCreationFixture, Box<dyn std::error::Error>> {
     let now_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
     let identity =
         TenantRootIdentityV1::new("org-miniflare", "project-r120", "test", "root-main", "v1")?;
+    let second_tenant_identity = TenantRootIdentityV1::new(
+        "org-miniflare-second",
+        "project-r120-second",
+        "test",
+        "root-main",
+        "v1",
+    )?;
     Ok(TenantRootCreationFixture {
         interrupted: tenant_root_creation_request(&identity, [0x22; 16], [0x33; 32], now_ms)?,
         fresh: tenant_root_creation_request(&identity, [0x23; 16], [0x34; 32], now_ms)?,
+        second_tenant: tenant_root_creation_request(
+            &second_tenant_identity,
+            [0x24; 16],
+            [0x35; 32],
+            now_ms,
+        )?,
     })
 }
 
@@ -529,6 +592,12 @@ fn cloudflare_tenant_root_control_plane_env(
     deriver_local: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<String, String>, Box<dyn std::error::Error>> {
     let grant_key = ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_GRANT_SEED).verifying_key();
+    let operations_key =
+        ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_OPERATIONS_SEED).verifying_key();
+    let deriver_a_custody_key =
+        ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_DERIVER_A_CUSTODY_SEED).verifying_key();
+    let deriver_b_custody_key =
+        ed25519_dalek::SigningKey::from_bytes(&TENANT_ROOT_DERIVER_B_CUSTODY_SEED).verifying_key();
     Ok(BTreeMap::from([
         (
             "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING".into(),
@@ -562,16 +631,20 @@ fn cloudflare_tenant_root_control_plane_env(
             ),
         ),
         (
+            "OPERATIONS_INCIDENT_VERIFYING_KEY_HEX".into(),
+            hex::encode(operations_key.as_bytes()),
+        ),
+        (
+            "DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX".into(),
+            hex::encode(deriver_a_custody_key.as_bytes()),
+        ),
+        (
+            "DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX".into(),
+            hex::encode(deriver_b_custody_key.as_bytes()),
+        ),
+        (
             "ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON".into(),
             cloudflare_tenant_root_role_verifying_keys_json(),
-        ),
-        (
-            "DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID".into(),
-            TENANT_ROOT_ROLE_A_KEY_ID.into(),
-        ),
-        (
-            "DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID".into(),
-            TENANT_ROOT_ROLE_B_KEY_ID.into(),
         ),
         (
             "DERIVER_A_PEER_VERIFYING_KEY_HEX".into(),

@@ -7,7 +7,8 @@ use router_ab_core::{
     PendingTenantRootRefreshRoleAttemptV1, RouterAbDerivationError, RouterAbDerivationErrorCode,
     RouterAbDerivationResult, RouterAbProtocolError, RouterAbProtocolErrorCode,
     RouterAbProtocolResult, TenantRootActiveRoleBindingV1, TenantRootCanaryCurveFamilyV1,
-    TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1, TenantRootDeriverIdentitiesV1,
+    TenantRootCeremonyContextV1, TenantRootCommandTerminalReceiptV1,
+    TenantRootControlPlaneAuthorityIdV1, TenantRootDeriverIdentitiesV1,
     TenantRootEncryptedRefreshContributionV1, TenantRootManagedBackupSealRequestV1,
     TenantRootManagedRestoreRoleV1, TenantRootProviderCanaryReceiptBindingV1,
     TenantRootRefreshContributionAadV1, TenantRootRefreshHpkePublicKeyV1,
@@ -18,6 +19,7 @@ use router_ab_core::{
     VerifiedTenantRootRoleRefreshCommandV1,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use threshold_prf::SigningRootShare;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -134,6 +136,20 @@ pub const TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV: &str =
 /// would let the issuer authorize its own work.
 pub const TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON_ENV: &str =
     "TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON";
+/// Ed25519 verifier for operations incident evidence.
+pub const OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV: &str = "OPERATIONS_INCIDENT_VERIFYING_KEY_HEX";
+/// Deriver A custody-authority Ed25519 verifier.
+pub const DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV: &str =
+    "DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX";
+/// Deriver B custody-authority Ed25519 verifier.
+pub const DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV: &str =
+    "DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX";
+/// Fixed key identifier for the operations-incident verifier.
+pub const OPERATIONS_INCIDENT_KEY_ID_V1: &str = "operations-incident-v1";
+/// Fixed key identifier for Deriver A's custody-authority verifier.
+pub const DERIVER_A_CUSTODY_AUTHORITY_KEY_ID_V1: &str = "deriver-a-custody-v1";
+/// Fixed key identifier for Deriver B's custody-authority verifier.
+pub const DERIVER_B_CUSTODY_AUTHORITY_KEY_ID_V1: &str = "deriver-b-custody-v1";
 /// Tenant-root control-plane issuer private signing-key Secret binding name.
 ///
 /// Only the dedicated `tenant-root-control-plane` Worker may hold this. It is
@@ -262,6 +278,9 @@ pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
 ];
 pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+    DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+    DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
     TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
@@ -295,6 +314,9 @@ pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
 ];
 pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+    DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+    DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
     ROUTER_JWT_ISSUER_ENV,
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
@@ -320,6 +342,9 @@ pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNING_WORKER_PEER_BINDING_ENV,
 ];
 pub(crate) const DERIVER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+    DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+    DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
     ROUTER_JWT_ISSUER_ENV,
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
@@ -344,6 +369,9 @@ pub(crate) const DERIVER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
 ];
 pub(crate) const SIGNING_WORKER_FORBIDDEN_ENV_KEYS: &[&str] = &[
+    OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
+    DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
+    DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV,
     ROUTER_JWT_ISSUER_ENV,
     ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_JWKS_JSON_ENV,
@@ -1520,6 +1548,175 @@ impl CloudflareTenantRootCreationGrantAuthorityVerifyingKeysV1 {
     }
 }
 
+/// Public Ed25519 verifier for operations incident evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareOperationsIncidentVerifierV1 {
+    verifying_key: [u8; 32],
+}
+
+impl CloudflareOperationsIncidentVerifierV1 {
+    /// Creates a validated operations-incident verifier from public key bytes.
+    pub fn new(verifying_key: [u8; 32]) -> RouterAbProtocolResult<Self> {
+        validate_ed25519_verifying_key("operations incident verifier", &verifying_key)?;
+        Ok(Self { verifying_key })
+    }
+
+    /// Revalidates the public verifier key.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        validate_ed25519_verifying_key("operations incident verifier", &self.verifying_key)
+    }
+
+    /// Returns the fixed key identifier authenticated by operations evidence.
+    pub const fn key_id(&self) -> &'static str {
+        OPERATIONS_INCIDENT_KEY_ID_V1
+    }
+
+    /// Derives the stable authority identifier for this verifier.
+    pub fn authority_id(&self) -> TenantRootControlPlaneAuthorityIdV1 {
+        derive_authority_id(
+            OPERATIONS_INCIDENT_KEY_ID_V1.as_bytes(),
+            &self.verifying_key,
+        )
+    }
+
+    /// Returns the public verifier key bytes.
+    pub const fn verifying_key_bytes(&self) -> [u8; 32] {
+        self.verifying_key
+    }
+}
+
+/// Separate public Ed25519 verifiers for Deriver A and Deriver B custody authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareCustodyAuthorityVerifiersV1 {
+    deriver_a: [u8; 32],
+    deriver_b: [u8; 32],
+}
+
+impl CloudflareCustodyAuthorityVerifiersV1 {
+    /// Creates validated, role-separated custody-authority verifiers.
+    pub fn new(deriver_a: [u8; 32], deriver_b: [u8; 32]) -> RouterAbProtocolResult<Self> {
+        validate_ed25519_verifying_key("Deriver A custody authority verifier", &deriver_a)?;
+        validate_ed25519_verifying_key("Deriver B custody authority verifier", &deriver_b)?;
+        if deriver_a == deriver_b {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "Deriver A and Deriver B custody authority verifiers must be distinct",
+            ));
+        }
+        Ok(Self {
+            deriver_a,
+            deriver_b,
+        })
+    }
+
+    /// Revalidates both role-specific public verifier keys.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        validate_ed25519_verifying_key("Deriver A custody authority verifier", &self.deriver_a)?;
+        validate_ed25519_verifying_key("Deriver B custody authority verifier", &self.deriver_b)?;
+        if self.deriver_a == self.deriver_b {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "Deriver A and Deriver B custody authority verifiers must be distinct",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the fixed Deriver A custody-authority key identifier.
+    pub const fn deriver_a_key_id(&self) -> &'static str {
+        DERIVER_A_CUSTODY_AUTHORITY_KEY_ID_V1
+    }
+
+    /// Returns the fixed Deriver B custody-authority key identifier.
+    pub const fn deriver_b_key_id(&self) -> &'static str {
+        DERIVER_B_CUSTODY_AUTHORITY_KEY_ID_V1
+    }
+
+    /// Derives Deriver A's stable custody-authority identifier.
+    pub fn deriver_a_authority_id(&self) -> TenantRootControlPlaneAuthorityIdV1 {
+        derive_authority_id(
+            DERIVER_A_CUSTODY_AUTHORITY_KEY_ID_V1.as_bytes(),
+            &self.deriver_a,
+        )
+    }
+
+    /// Derives Deriver B's stable custody-authority identifier.
+    pub fn deriver_b_authority_id(&self) -> TenantRootControlPlaneAuthorityIdV1 {
+        derive_authority_id(
+            DERIVER_B_CUSTODY_AUTHORITY_KEY_ID_V1.as_bytes(),
+            &self.deriver_b,
+        )
+    }
+
+    /// Returns Deriver A's custody-authority verifier.
+    pub const fn deriver_a(&self) -> &[u8; 32] {
+        &self.deriver_a
+    }
+
+    /// Returns Deriver B's custody-authority verifier.
+    pub const fn deriver_b(&self) -> &[u8; 32] {
+        &self.deriver_b
+    }
+}
+
+fn derive_authority_id(
+    domain: &[u8],
+    verifying_key: &[u8; 32],
+) -> TenantRootControlPlaneAuthorityIdV1 {
+    let mut hasher = Sha256::new();
+    hasher.update(domain);
+    hasher.update(verifying_key);
+    TenantRootControlPlaneAuthorityIdV1::from_bytes(hasher.finalize().into())
+}
+
+fn validate_ed25519_verifying_key(
+    label: &str,
+    verifying_key: &[u8; 32],
+) -> RouterAbProtocolResult<()> {
+    VerifyingKey::from_bytes(verifying_key).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{label} is not a valid Ed25519 point"),
+        )
+    })?;
+    Ok(())
+}
+
+fn decode_control_plane_verifying_key_hex(
+    label: &str,
+    value: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let verifying_key = decode_lower_hex_32(value)?;
+    validate_ed25519_verifying_key(label, &verifying_key)?;
+    Ok(verifying_key)
+}
+
+/// Parses the required operations-incident verifier from Env.
+pub(crate) fn parse_cloudflare_operations_incident_verifier_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareOperationsIncidentVerifierV1> {
+    CloudflareOperationsIncidentVerifierV1::new(decode_control_plane_verifying_key_hex(
+        "operations incident verifier",
+        &read_required_raw_env_text(env, OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV)?,
+    )?)
+}
+
+/// Parses the required role-separated custody-authority verifiers from Env.
+pub(crate) fn parse_cloudflare_custody_authority_verifiers_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareCustodyAuthorityVerifiersV1> {
+    CloudflareCustodyAuthorityVerifiersV1::new(
+        decode_control_plane_verifying_key_hex(
+            "Deriver A custody authority verifier",
+            &read_required_raw_env_text(env, DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV)?,
+        )?,
+        decode_control_plane_verifying_key_hex(
+            "Deriver B custody authority verifier",
+            &read_required_raw_env_text(env, DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX_ENV)?,
+        )?,
+    )
+}
+
 /// Parses the trusted grant-authority set from Env.
 pub(crate) fn parse_cloudflare_tenant_root_creation_grant_authority_verifying_keys_v1(
     env: &impl CloudflareEnvReaderV1,
@@ -2158,6 +2355,61 @@ mod tests {
                 ),
             }
         }
+    }
+
+    #[test]
+    fn restore_authority_config_derives_fixed_ids_from_domain_and_public_key() {
+        let operations_key = SigningKey::from_bytes(&[0x51; 32])
+            .verifying_key()
+            .to_bytes();
+        let deriver_a_key = SigningKey::from_bytes(&[0x52; 32])
+            .verifying_key()
+            .to_bytes();
+        let deriver_b_key = SigningKey::from_bytes(&[0x53; 32])
+            .verifying_key()
+            .to_bytes();
+        let operations = CloudflareOperationsIncidentVerifierV1::new(operations_key)
+            .expect("operations verifier");
+        let custody = CloudflareCustodyAuthorityVerifiersV1::new(deriver_a_key, deriver_b_key)
+            .expect("custody authority verifiers");
+
+        let expected_id = |domain: &str, key: &[u8; 32]| {
+            let mut input = domain.as_bytes().to_vec();
+            input.extend_from_slice(key);
+            TenantRootControlPlaneAuthorityIdV1::from_bytes(Sha256::digest(input).into())
+        };
+
+        assert_eq!(operations.key_id(), OPERATIONS_INCIDENT_KEY_ID_V1);
+        assert_eq!(
+            custody.deriver_a_key_id(),
+            DERIVER_A_CUSTODY_AUTHORITY_KEY_ID_V1
+        );
+        assert_eq!(
+            custody.deriver_b_key_id(),
+            DERIVER_B_CUSTODY_AUTHORITY_KEY_ID_V1
+        );
+        assert_eq!(
+            operations.authority_id(),
+            expected_id(OPERATIONS_INCIDENT_KEY_ID_V1, &operations_key)
+        );
+        assert_eq!(
+            custody.deriver_a_authority_id(),
+            expected_id(DERIVER_A_CUSTODY_AUTHORITY_KEY_ID_V1, &deriver_a_key)
+        );
+        assert_eq!(
+            custody.deriver_b_authority_id(),
+            expected_id(DERIVER_B_CUSTODY_AUTHORITY_KEY_ID_V1, &deriver_b_key)
+        );
+        assert_ne!(
+            custody.deriver_a_authority_id(),
+            custody.deriver_b_authority_id()
+        );
+        assert_ne!(
+            operations.authority_id(),
+            CloudflareOperationsIncidentVerifierV1::new(deriver_a_key)
+                .expect("operations verifier")
+                .authority_id()
+        );
     }
 
     /// A public trust anchor is not Router configuration.

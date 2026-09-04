@@ -309,6 +309,9 @@ impl fmt::Debug for CloudflareTenantRootSealedRoleShareV1 {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum CloudflareTenantRootPendingShareOriginV1 {
     Ceremony,
+    Refresh {
+        replay_key_digest: TenantRootProtocolDigestV1,
+    },
     ManagedRestore {
         capability_digest: TenantRootLifecycleReceiptDigestV1,
         backup_receipt_digest: TenantRootLifecycleReceiptDigestV1,
@@ -334,6 +337,21 @@ impl CloudflareTenantRootPendingShareV1 {
             .lifecycle_receipt_digest()
             .map_err(|error| store_error(error.message()))?;
         Self::from_stored_digest(installation_evidence_digest, staged_at_ms)
+    }
+
+    fn from_verified_refresh_installation_evidence(
+        evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
+        staged_at_ms: u64,
+        replay_key_digest: TenantRootProtocolDigestV1,
+    ) -> worker::Result<Self> {
+        let installation_evidence_digest = evidence
+            .lifecycle_receipt_digest()
+            .map_err(|error| store_error(error.message()))?;
+        Self::from_stored_digest_with_origin(
+            installation_evidence_digest,
+            staged_at_ms,
+            CloudflareTenantRootPendingShareOriginV1::Refresh { replay_key_digest },
+        )
     }
 
     fn from_stored_digest(
@@ -400,10 +418,21 @@ impl CloudflareTenantRootPendingShareV1 {
     )> {
         match &self.origin {
             CloudflareTenantRootPendingShareOriginV1::Ceremony => None,
+            CloudflareTenantRootPendingShareOriginV1::Refresh { .. } => None,
             CloudflareTenantRootPendingShareOriginV1::ManagedRestore {
                 capability_digest,
                 backup_receipt_digest,
             } => Some((*capability_digest, *backup_receipt_digest)),
+        }
+    }
+
+    fn refresh_replay_key_digest(&self) -> Option<TenantRootProtocolDigestV1> {
+        match &self.origin {
+            CloudflareTenantRootPendingShareOriginV1::Refresh { replay_key_digest } => {
+                Some(*replay_key_digest)
+            }
+            CloudflareTenantRootPendingShareOriginV1::Ceremony
+            | CloudflareTenantRootPendingShareOriginV1::ManagedRestore { .. } => None,
         }
     }
 }
@@ -1143,6 +1172,30 @@ impl CloudflareStoredTenantRootRoleShareV1 {
             .filter(|revision| *revision > 0)
             .ok_or_else(|| {
                 store_error("tenant-root initial activation retry has no prior pending revision")
+            })?;
+        let mut record = self.record.clone();
+        record.lifecycle =
+            CloudflareTenantRootRoleShareLifecycleV1::Pending(active.pending.clone());
+        record.updated_at_ms = active.pending.staged_at_ms;
+        record.validate()?;
+        Ok(Self { record, revision })
+    }
+
+    /// Reconstructs the exact pending revision consumed by a refresh activation.
+    pub(crate) fn refresh_activation_retry_pending(&self) -> worker::Result<Self> {
+        self.record.validate()?;
+        let CloudflareTenantRootRoleShareLifecycleV1::Active(active) = &self.record.lifecycle
+        else {
+            return Err(store_error(
+                "tenant-root refresh activation retry requires an active successor",
+            ));
+        };
+        let revision = self
+            .revision
+            .checked_sub(1)
+            .filter(|revision| *revision > 0)
+            .ok_or_else(|| {
+                store_error("tenant-root refresh activation retry has no prior pending revision")
             })?;
         let mut record = self.record.clone();
         record.lifecycle =
@@ -2239,6 +2292,35 @@ impl CloudflareTenantRootRefreshArtifactMetadataV1 {
     }
 }
 
+/// Exact immutable artifacts recovered from a completed refresh replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CloudflareTenantRootRefreshArtifactCheckpointV1 {
+    command_bytes: Vec<u8>,
+    evidence_bytes: Vec<u8>,
+    prepared_artifacts: CloudflareTenantRootRefreshPreparedArtifactsV1,
+    artifacts: CloudflareTenantRootRefreshArtifactMetadataV1,
+}
+
+impl CloudflareTenantRootRefreshArtifactCheckpointV1 {
+    pub(crate) fn command_bytes(&self) -> &[u8] {
+        &self.command_bytes
+    }
+
+    pub(crate) fn evidence_bytes(&self) -> &[u8] {
+        &self.evidence_bytes
+    }
+
+    pub(crate) const fn prepared_artifacts(
+        &self,
+    ) -> &CloudflareTenantRootRefreshPreparedArtifactsV1 {
+        &self.prepared_artifacts
+    }
+
+    pub(crate) const fn artifacts(&self) -> &CloudflareTenantRootRefreshArtifactMetadataV1 {
+        &self.artifacts
+    }
+}
+
 fn validate_refresh_state_bytes(
     field: &str,
     encoded: &str,
@@ -2631,6 +2713,11 @@ impl CloudflareTenantRootRefreshInputV1 {
     ) -> worker::Result<Self> {
         let sealed_binding = share.sealed_online_share.binding();
         let evidence_digest = validate_refresh_command_evidence(&command, &evidence)?;
+        let replay_key_digest = command
+            .scope()
+            .key()
+            .storage_key_digest()
+            .map_err(|error| store_error(error.message()))?;
         let identity_digest = share
             .identity
             .digest()
@@ -2643,10 +2730,12 @@ impl CloudflareTenantRootRefreshInputV1 {
             evidence_digest,
         )?;
         let role = cloudflare_role_for_protocol(sealed_binding.role())?;
-        let pending = CloudflareTenantRootPendingShareV1::from_verified_installation_evidence(
-            &evidence,
-            share.staged_at_ms,
-        )?;
+        let pending =
+            CloudflareTenantRootPendingShareV1::from_verified_refresh_installation_evidence(
+                &evidence,
+                share.staged_at_ms,
+                replay_key_digest,
+            )?;
         let sealed_share =
             CloudflareTenantRootSealedRoleShareV1::new(share.sealed_online_share.ciphertext())?;
         let record = CloudflareTenantRootRoleShareRecordV1::new(
@@ -3019,6 +3108,12 @@ pub(crate) enum CloudflareTenantRootAuthorizedCleanupDecisionV1 {
     },
     ResumeCompletion {
         executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1,
+    },
+    /// The managed-restore source was consumed by the forward-refresh CAS;
+    /// checkpoint the authorized cleanup so its provider cleanup can proceed.
+    RetiredAlreadyAbsent {
+        reservation: ReservedTenantRootCommandV1,
+        authorization: VerifiedTenantRootRoleCleanupCommandV1,
     },
     ReplayCompleted {
         receipt_bytes: Vec<u8>,
@@ -3925,6 +4020,7 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         require_timestamp("tenant-root refresh execution checkpoint", executed_at_ms)?;
         validate_refresh_command_evidence(&command, &evidence)?;
         validate_refresh_record_binding(&command, &evidence, &record)?;
+        validate_refresh_replay_link(&record, admission.key())?;
         validate_command_scope_for_record(
             &scope,
             &record,
@@ -5031,6 +5127,116 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         Ok(self.load_command_replay(scope.key()).await?.is_some())
     }
 
+    /// Reconciles an activation retry after its lifecycle mutation committed.
+    pub(crate) async fn reconcile_activation_after_swap(
+        &self,
+        scope: &TenantRootCommandScopeV1,
+    ) -> worker::Result<CloudflareTenantRootCommandReplayDecisionV1> {
+        self.require_command_role(scope.key())?;
+        let stored = self
+            .load_command_replay(scope.key())
+            .await?
+            .ok_or_else(|| {
+                store_error("tenant-root active successor has no activation replay record")
+            })?;
+        self.reconcile_command_retry(&stored, *scope.key(), stored.record.command_digest())
+    }
+
+    /// Loads the exact completed refresh artifacts linked from one pending row.
+    /// The link is the replay row's primary-key digest, so activation never
+    /// scans replay history or accepts a caller-selected refresh record.
+    pub(crate) async fn load_refresh_artifact_checkpoint(
+        &self,
+        pending: &CloudflareStoredTenantRootRoleShareV1,
+    ) -> worker::Result<CloudflareTenantRootRefreshArtifactCheckpointV1> {
+        validate_pending_stored_record(&self.cipher, pending)?;
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending_state) =
+            pending.record.lifecycle()
+        else {
+            unreachable!("pending lifecycle was checked by validate_pending_stored_record");
+        };
+        let replay_key_digest = pending_state.refresh_replay_key_digest().ok_or_else(|| {
+            store_error("tenant-root pending refresh row omitted its replay linkage")
+        })?;
+        let stored = self
+            .load_command_replay_by_storage_key_digest(replay_key_digest)
+            .await?
+            .ok_or_else(|| {
+                store_error("tenant-root pending refresh row links to a missing replay row")
+            })?;
+        if !matches!(stored.record, TenantRootCommandReplayRecordV1::Completed(_)) {
+            return Err(store_error(
+                "tenant-root refresh artifact checkpoint requires a completed replay",
+            ));
+        }
+        let state = stored.refresh_state.ok_or_else(|| {
+            store_error("tenant-root completed refresh replay omitted its durable state")
+        })?;
+        let CloudflareTenantRootRefreshDurableStateV1::Artifacts {
+            command_b64u,
+            evidence_b64u,
+            prepared_artifacts,
+            artifacts,
+        } = state
+        else {
+            return Err(store_error(
+                "tenant-root completed refresh replay omitted its artifact checkpoint",
+            ));
+        };
+        let command_bytes =
+            decode_refresh_state_bytes("tenant-root refresh checkpoint command", &command_b64u)?;
+        let command = TenantRootRoleRefreshCommandV1::decode_canonical_bytes(&command_bytes)
+            .map_err(|error| store_error(error.message()))?;
+        let identity_digest = pending
+            .record
+            .identity
+            .digest()
+            .map_err(|error| store_error(error.message()))?;
+        if command.identity_digest() != identity_digest
+            || command.custody_lineage() != pending.record.custody_lineage
+            || command.next_epoch() != pending.record.epoch
+            || command.role() != protocol_role_for_cloudflare(self.cipher.role)
+        {
+            return Err(store_error(
+                "tenant-root refresh checkpoint command does not match its pending row",
+            ));
+        }
+        let command_key = TenantRootCommandReplayKeyV1::new(
+            command.identity_digest(),
+            command.custody_lineage(),
+            command.session_id(),
+            command.nonce(),
+            command.role(),
+        );
+        if command_key
+            .storage_key_digest()
+            .map_err(|error| store_error(error.message()))?
+            != replay_key_digest
+        {
+            return Err(store_error(
+                "tenant-root refresh checkpoint command does not match its replay link",
+            ));
+        }
+        let evidence_bytes =
+            decode_refresh_state_bytes("tenant-root refresh checkpoint evidence", &evidence_b64u)?;
+        TenantRootSignedShareInstallationEvidenceV1::decode_canonical_bytes(&evidence_bytes)
+            .map_err(|error| store_error(error.message()))?;
+        let evidence_digest =
+            TenantRootLifecycleReceiptDigestV1::from_bytes(Sha256::digest(&evidence_bytes).into())
+                .map_err(|error| store_error(error.message()))?;
+        if evidence_digest != pending_state.installation_evidence_digest() {
+            return Err(store_error(
+                "tenant-root refresh checkpoint evidence does not match its pending row",
+            ));
+        }
+        Ok(CloudflareTenantRootRefreshArtifactCheckpointV1 {
+            command_bytes,
+            evidence_bytes,
+            prepared_artifacts,
+            artifacts,
+        })
+    }
+
     /// Reserves one exact initial-activation command.
     pub(crate) async fn reserve_activate_initial_pending(
         &self,
@@ -5631,14 +5837,6 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                 expected_active_revision,
                 ..
             } => {
-                let retired = self
-                    .load_epoch_by_identity_digest(
-                        authorization.identity_digest(),
-                        authorization.custody_lineage(),
-                        *retired_epoch,
-                    )
-                    .await?
-                    .ok_or_else(|| store_error("tenant-root cleanup retired row does not exist"))?;
                 let active = self
                     .load_epoch_by_identity_digest(
                         authorization.identity_digest(),
@@ -5649,6 +5847,70 @@ impl CloudflareTenantRootRoleShareStoreV1 {
                     .ok_or_else(|| {
                         store_error("tenant-root cleanup active successor row does not exist")
                     })?;
+                let retired = self
+                    .load_epoch_by_identity_digest(
+                        authorization.identity_digest(),
+                        authorization.custody_lineage(),
+                        *retired_epoch,
+                    )
+                    .await?;
+                let Some(retired) = retired else {
+                    validate_authorized_cleanup_retired_absent(
+                        &self.cipher,
+                        &authorization,
+                        &active,
+                    )?;
+                    let operation_payload_digest =
+                        authorized_cleanup_retired_absent_payload_digest(&authorization)?;
+                    return match self
+                        .reserve_scoped_command_with_admission_digest(
+                            scope,
+                            TenantRootCommandOperationV1::cleanup_pending(operation_payload_digest),
+                            reserved_at_ms,
+                            Some(TenantRootCommandAdmissionV1::AuthorizedCleanup(
+                                authorization_digest,
+                            )),
+                        )
+                        .await?
+                    {
+                        CloudflareTenantRootCommandReplayDecisionV1::Execute { reservation }
+                        | CloudflareTenantRootCommandReplayDecisionV1::ResumeExecution {
+                            reservation,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::RetiredAlreadyAbsent {
+                                reservation,
+                                authorization,
+                            },
+                        ),
+                        CloudflareTenantRootCommandReplayDecisionV1::InProgress => {
+                            Ok(CloudflareTenantRootAuthorizedCleanupDecisionV1::InProgress)
+                        }
+                        CloudflareTenantRootCommandReplayDecisionV1::ResumeCompletion {
+                            executed,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion {
+                                executed: CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                                    executed,
+                                    authorization,
+                                },
+                            },
+                        ),
+                        CloudflareTenantRootCommandReplayDecisionV1::ReplayCompleted {
+                            receipt_bytes,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted {
+                                receipt_bytes,
+                            },
+                        ),
+                        CloudflareTenantRootCommandReplayDecisionV1::ReplayFailed {
+                            failure_receipt_bytes,
+                        } => Ok(
+                            CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayFailed {
+                                failure_receipt_bytes,
+                            },
+                        ),
+                    };
+                };
                 validate_authorized_cleanup_retired(
                     &self.cipher,
                     &authorization,
@@ -5759,6 +6021,18 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             }
             CloudflareTenantRootAuthorizedCleanupDecisionV1::ResumeCompletion { executed } => {
                 executed
+            }
+            CloudflareTenantRootAuthorizedCleanupDecisionV1::RetiredAlreadyAbsent {
+                reservation,
+                authorization,
+            } => {
+                let executed = self
+                    .checkpoint_command_without_lifecycle(reservation, executed_at_ms)
+                    .await?;
+                CloudflareTenantRootAuthorizedCleanupExecutedCommandV1 {
+                    executed,
+                    authorization,
+                }
             }
             CloudflareTenantRootAuthorizedCleanupDecisionV1::ReplayCompleted { receipt_bytes } => {
                 return Ok(receipt_bytes);
@@ -6610,6 +6884,52 @@ impl CloudflareTenantRootRoleShareStoreV1 {
             .map_err(|error| store_error(error.message()))
     }
 
+    async fn checkpoint_command_without_lifecycle(
+        &self,
+        reservation: ReservedTenantRootCommandV1,
+        executed_at_ms: u64,
+    ) -> worker::Result<ExecutedTenantRootCommandV1> {
+        if executed_at_ms < reservation.reserved_at_ms() {
+            return Err(store_error(
+                "tenant-root command execution checkpoint precedes its reservation",
+            ));
+        }
+        let checkpoint_statement =
+            self.command_execution_checkpoint_statement(&reservation, executed_at_ms)?;
+        let checkpoint_guard = self.command_cas_count_guard_statement(1)?;
+        let results = self
+            .session
+            .batch(vec![checkpoint_statement, checkpoint_guard])
+            .await?;
+        if results.len() != 2 {
+            return Err(store_error(
+                "tenant-root command-only checkpoint returned an invalid result count",
+            ));
+        }
+        for result in &results {
+            if !result.success() {
+                return Err(store_error(format!(
+                    "tenant-root command-only checkpoint statement failed: {}",
+                    result
+                        .error()
+                        .unwrap_or_else(|| "unknown D1 error".to_owned())
+                )));
+            }
+        }
+        require_one_change(
+            &results[0],
+            "tenant-root command execution checkpoint changed concurrently",
+        )?;
+        require_changes(
+            &results[1],
+            0,
+            "tenant-root command checkpoint count guard returned an invalid change count",
+        )?;
+        reservation
+            .checkpoint_executed(executed_at_ms)
+            .map_err(|error| store_error(error.message()))
+    }
+
     async fn run_managed_restore_forward_refresh_checkpoint(
         &self,
         delete_statement: worker::D1PreparedStatement,
@@ -6814,11 +7134,18 @@ impl CloudflareTenantRootRoleShareStoreV1 {
         key: &TenantRootCommandReplayKeyV1,
     ) -> worker::Result<Option<StoredTenantRootCommandReplayV1>> {
         self.require_command_role(key)?;
-        let replay_key_digest_hex = encode_hex(
-            key.storage_key_digest()
-                .map_err(|error| store_error(error.message()))?
-                .as_bytes(),
-        );
+        let replay_key_digest = key
+            .storage_key_digest()
+            .map_err(|error| store_error(error.message()))?;
+        self.load_command_replay_by_storage_key_digest(replay_key_digest)
+            .await
+    }
+
+    async fn load_command_replay_by_storage_key_digest(
+        &self,
+        replay_key_digest: TenantRootProtocolDigestV1,
+    ) -> worker::Result<Option<StoredTenantRootCommandReplayV1>> {
+        let replay_key_digest_hex = encode_hex(replay_key_digest.as_bytes());
         let row = self
             .session
             .prepare(LOAD_COMMAND_REPLAY_SQL)
@@ -9480,6 +9807,26 @@ fn validate_refresh_record_binding(
     record.validate()
 }
 
+fn validate_refresh_replay_link(
+    record: &CloudflareTenantRootRoleShareRecordV1,
+    replay_key: &TenantRootCommandReplayKeyV1,
+) -> worker::Result<()> {
+    let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = record.lifecycle() else {
+        return Err(store_error(
+            "tenant-root refresh replay link requires a pending role share",
+        ));
+    };
+    let replay_key_digest = replay_key
+        .storage_key_digest()
+        .map_err(|error| store_error(error.message()))?;
+    if pending.refresh_replay_key_digest() != Some(replay_key_digest) {
+        return Err(store_error(
+            "tenant-root refresh pending row does not link its exact replay key",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_refresh_success_receipt_payload(
     evidence: &VerifiedTenantRootSignedShareInstallationEvidenceWireV1,
     receipt: &VerifiedTenantRootCommandSuccessReceiptV1,
@@ -9800,6 +10147,17 @@ fn authorized_cleanup_retired_payload_digest(
     finish_command_payload(bytes)
 }
 
+fn authorized_cleanup_retired_absent_payload_digest(
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+) -> worker::Result<TenantRootProtocolDigestV1> {
+    let authorization_digest = authorization
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let mut bytes = command_payload_start("authorized_cleanup_retired_absent")?;
+    push_command_field(&mut bytes, authorization_digest.as_bytes())?;
+    finish_command_payload(bytes)
+}
+
 fn validate_authorized_cleanup_pending(
     cipher: &TenantRootRoleD1CipherV1,
     authorization: &VerifiedTenantRootRoleCleanupCommandV1,
@@ -9889,6 +10247,50 @@ fn validate_authorized_cleanup_retired(
     Ok(())
 }
 
+fn validate_authorized_cleanup_retired_absent(
+    cipher: &TenantRootRoleD1CipherV1,
+    authorization: &VerifiedTenantRootRoleCleanupCommandV1,
+    active: &CloudflareStoredTenantRootRoleShareV1,
+) -> worker::Result<()> {
+    validate_active_stored_record(cipher, active)?;
+    let TenantRootRoleCleanupTargetV1::Retired {
+        identity_digest,
+        custody_lineage,
+        role,
+        retired_epoch,
+        expected_retired_revision,
+        expected_active_epoch,
+        expected_active_revision,
+    } = authorization.target()
+    else {
+        return Err(store_error(
+            "tenant-root absent retired cleanup requires a retired authorization",
+        ));
+    };
+    let active_identity = active
+        .record()
+        .identity()
+        .digest()
+        .map_err(|error| store_error(error.message()))?;
+    let active_role = tenant_root_protocol_role_of(active.record().role());
+    if active_identity != *identity_digest
+        || active.record().custody_lineage() != *custody_lineage
+        || active_role != *role
+        || active.record().epoch() != *expected_active_epoch
+        || active.revision() != *expected_active_revision
+        || *expected_retired_revision <= 0
+        || retired_epoch
+            .next()
+            .map_err(|error| store_error(error.message()))?
+            != *expected_active_epoch
+    {
+        return Err(store_error(
+            "tenant-root absent retired cleanup authorization does not name the active successor",
+        ));
+    }
+    Ok(())
+}
+
 fn command_payload_start(operation: &'static str) -> worker::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     push_command_field(&mut bytes, TENANT_ROOT_ROLE_COMMAND_PAYLOAD_DOMAIN_V1)?;
@@ -9956,6 +10358,10 @@ fn push_pending_public_payload(
     match &pending.origin {
         CloudflareTenantRootPendingShareOriginV1::Ceremony => {
             push_command_field(bytes, b"ceremony")?;
+        }
+        CloudflareTenantRootPendingShareOriginV1::Refresh { replay_key_digest } => {
+            push_command_field(bytes, b"refresh")?;
+            push_command_field(bytes, replay_key_digest.as_bytes())?;
         }
         CloudflareTenantRootPendingShareOriginV1::ManagedRestore {
             capability_digest,
@@ -13077,6 +13483,32 @@ mod tests {
     }
 
     #[test]
+    fn active_refresh_activation_retry_reconstructs_the_consumed_pending_revision() {
+        let epoch = TenantRootShareEpoch::new(2).expect("epoch 2");
+        let pending = record_for_identity_epoch(
+            test_identity(),
+            CloudflareTenantRootDeriverRoleV1::DeriverA,
+            0x44,
+            epoch,
+            test_commitment(CloudflareTenantRootDeriverRoleV1::DeriverA),
+        );
+        let activation = current_backup_activation_for_record(&pending, 0x88, 0x91, 30);
+        let active = pending
+            .clone()
+            .into_active(activation, 30)
+            .expect("active refresh successor");
+        let retry_pending = CloudflareStoredTenantRootRoleShareV1 {
+            record: active,
+            revision: 2,
+        }
+        .refresh_activation_retry_pending()
+        .expect("refresh retry pending");
+
+        assert_eq!(retry_pending.revision(), 1);
+        assert_eq!(retry_pending.record(), &pending);
+    }
+
+    #[test]
     fn old_digest_only_activation_wire_is_rejected() {
         let activation =
             current_backup_activation(CloudflareTenantRootDeriverRoleV1::DeriverA, 0x88, 0x89, 20);
@@ -14390,6 +14822,15 @@ mod tests {
             record: input.record,
             revision: 1,
         };
+        let replay_key_digest = scope
+            .key()
+            .storage_key_digest()
+            .expect("refresh replay key digest");
+        let CloudflareTenantRootRoleShareLifecycleV1::Pending(pending) = stored.record.lifecycle()
+        else {
+            panic!("refresh input must remain pending before activation");
+        };
+        assert_eq!(pending.refresh_replay_key_digest(), Some(replay_key_digest));
         assert_eq!(scope.expected_control_plane_revision(), 4);
         assert_eq!(stored.revision(), 1);
         assert_ne!(
