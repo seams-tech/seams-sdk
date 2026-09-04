@@ -322,6 +322,9 @@ test('deployment key generation provisions distinct role-local tenant-root provi
     output.variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY,
   ];
   expect(new Set(publicKeys).size).toBe(publicKeys.length);
+  expect(output.variables.ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID).not.toBe(
+    output.variables.ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID,
+  );
   for (const name of [
     'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
     'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
@@ -450,7 +453,6 @@ test('deployment key generation provisions role-local Deriver creation signing k
   expect(keySet.keys.map((entry) => entry.role)).toEqual(['deriver_a', 'deriver_b']);
   expect(keySet.active_deriver_a_signing_key_id).toBe(keySet.keys[0].signing_key_id);
   expect(keySet.active_deriver_b_signing_key_id).toBe(keySet.keys[1].signing_key_id);
-  const retainedKeySet = JSON.stringify({ keys: keySet.keys });
   for (const [entry, role, R] of [
     [keySet.keys[0], 'deriver_a', 'A'],
     [keySet.keys[1], 'deriver_b', 'B'],
@@ -474,7 +476,7 @@ test('deployment key generation provisions role-local Deriver creation signing k
             output.secrets[`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY`],
           [`DERIVER_${R}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`]: entry.signing_key_id,
           ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
-            retainedKeySet,
+            output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
         },
       ),
     ).not.toThrow();
@@ -503,7 +505,7 @@ test('deployment key generation provisions role-local Deriver creation signing k
       'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
     ]),
   );
-  // A's seed does not verify as B, nor under B's id.
+  // A's key cannot be selected as B's active role key.
   expect(() =>
     assertEd25519RoleKeySet(
       'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
@@ -515,10 +517,10 @@ test('deployment key generation provisions role-local Deriver creation signing k
           output.secrets.DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY,
         DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID: keySet.keys[0].signing_key_id,
         ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:
-          retainedKeySet,
+          output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
       },
     ),
-  ).toThrow(/does not publish/u);
+  ).toThrow(/is not the active key for deriver_b/u);
 });
 
 test('issuer key-set validation fails closed on every mismatch', () => {

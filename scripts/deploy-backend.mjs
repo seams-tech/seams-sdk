@@ -1115,14 +1115,24 @@ export function assertEd25519RoleKeySet(secretName, keyIdName, keySetName, role,
     !keySet ||
     typeof keySet !== 'object' ||
     !Array.isArray(keySet.keys) ||
-    Object.keys(keySet).length !== 1 ||
+    Object.keys(keySet).length !== 3 ||
+    !Object.hasOwn(keySet, 'active_deriver_a_signing_key_id') ||
+    !Object.hasOwn(keySet, 'active_deriver_b_signing_key_id') ||
+    typeof keySet.active_deriver_a_signing_key_id !== 'string' ||
+    typeof keySet.active_deriver_b_signing_key_id !== 'string' ||
     keySet.keys.length < 2 ||
     keySet.keys.length > 64
   ) {
-    throw new Error(`${keySetName} must be {"keys":[...]} with between two and 64 keys`);
+    throw new Error(
+      `${keySetName} must carry both active role selectors and between two and 64 keys`,
+    );
   }
   const ids = new Set();
   const verifiers = new Set();
+  const roleIds = new Map([
+    ['deriver_a', new Set()],
+    ['deriver_b', new Set()],
+  ]);
   let published;
   for (const entry of keySet.keys) {
     if (
@@ -1146,7 +1156,23 @@ export function assertEd25519RoleKeySet(secretName, keyIdName, keySetName, role,
     }
     ids.add(entry.signing_key_id);
     verifiers.add(entry.verifying_key_hex);
+    roleIds.get(entry.role).add(entry.signing_key_id);
     if (entry.role === role && entry.signing_key_id === keyId) published = entry.verifying_key_hex;
+  }
+  for (const [publishedRole, activeField] of [
+    ['deriver_a', 'active_deriver_a_signing_key_id'],
+    ['deriver_b', 'active_deriver_b_signing_key_id'],
+  ]) {
+    if (!roleIds.get(publishedRole).has(keySet[activeField])) {
+      throw new Error(`${keySetName} ${activeField} does not name a retained ${publishedRole} key`);
+    }
+  }
+  const activeField =
+    role === 'deriver_a'
+      ? 'active_deriver_a_signing_key_id'
+      : 'active_deriver_b_signing_key_id';
+  if (keySet[activeField] !== keyId) {
+    throw new Error(`${keyIdName} ${keyId} is not the active key for ${role}`);
   }
   if (!published)
     throw new Error(`${keySetName} does not publish ${keyIdName} ${keyId} for ${role}`);

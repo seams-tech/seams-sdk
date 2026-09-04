@@ -256,8 +256,8 @@ function resourceAnalytics(latency, profile, start, end) {
     campaign_sha256: (profile === 'current' ? '44' : '55').repeat(32),
     measurement_window: { start, end },
     expected_requests_per_role: 303,
-    cpu_limit_ms: 200,
-    cpu_headroom_threshold_ms: 150,
+    cpu_limit_ms: 300,
+    cpu_headroom_threshold_ms: 225,
     memory_limit_bytes: 128 * 1024 * 1024,
     memory_headroom_threshold_bytes: 96 * 1024 * 1024,
     websocket_headroom: {
@@ -449,8 +449,8 @@ async function run() {
     }
     return {
       ...sample,
-      client_wall_ms: sample.client_wall_ms + 6,
-      elapsed_ms: sample.elapsed_ms + 6,
+      client_wall_ms: sample.client_wall_ms + 16,
+      elapsed_ms: sample.elapsed_ms + 16,
     };
   });
   const rejectedReport = fixtureReport(3, slowCandidateSamples);

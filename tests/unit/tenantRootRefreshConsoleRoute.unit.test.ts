@@ -140,7 +140,7 @@ test('refresh route resolves active lineage and forwards only the bounded Router
   const expectedIdentity: TenantRootIdentityV1 = {
     orgId: ORG_ID,
     projectId: PROJECT_ID,
-    envId: 'dev',
+    envId: ENVIRONMENT_ID,
     signingRootId: `${PROJECT_ID}:dev`,
     signingRootVersion: 'default',
   };

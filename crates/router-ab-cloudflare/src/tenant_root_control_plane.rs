@@ -2094,9 +2094,13 @@ mod live {
         )
         .await?;
         if !(200..=299).contains(&status) {
+            let response_detail = String::from_utf8_lossy(&response_body);
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                format!("{label} service returned HTTP status {status}"),
+                format!(
+                    "{label} service returned HTTP status {status}: {}",
+                    response_detail.trim()
+                ),
             ));
         }
         let parsed: CloudflareTenantRootControlPlaneInitialActivationReceiptResponseV1 =

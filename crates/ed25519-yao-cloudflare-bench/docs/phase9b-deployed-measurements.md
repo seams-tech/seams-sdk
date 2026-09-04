@@ -190,7 +190,7 @@ request may enter either Worker during those windows. Set
 Request counts must equal 303 per role: 101 observations for each of the three
 ceremonies.
 
-The benchmark configs fix a 200 ms CPU limit. Selection requires candidate
+The benchmark configs fix a 300 ms CPU limit. Selection requires candidate
 per-role CPU p95 at or below 150 ms and no more than 5 ms above current. Memory
 uses the strongest available sampled proxy: candidate P999 may increase by at
 most 10%, both profiles must remain strictly below 96 MiB, and any

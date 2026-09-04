@@ -85,7 +85,7 @@ const variables = {
     'cloudflare-worker-secret/deriver-a/tenant-root-online/key-1',
   ROUTER_AB_DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY: deriverATenantRootOnline.publicKey,
   ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
-    'cloudflare-worker-secret-operational-v1',
+    'cloudflare-worker-secret-operational-deriver-a-v1',
   ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION: 'deriver-a-key-1',
   ROUTER_AB_DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
     deriverATenantRootManagedBackup.publicKey,
@@ -93,7 +93,7 @@ const variables = {
     'cloudflare-worker-secret/deriver-b/tenant-root-online/key-1',
   ROUTER_AB_DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY: deriverBTenantRootOnline.publicKey,
   ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:
-    'cloudflare-worker-secret-operational-v1',
+    'cloudflare-worker-secret-operational-deriver-b-v1',
   ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION: 'deriver-b-key-1',
   ROUTER_AB_DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:
     deriverBTenantRootManagedBackup.publicKey,

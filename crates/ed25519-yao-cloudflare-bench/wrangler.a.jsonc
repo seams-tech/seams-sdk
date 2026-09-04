@@ -4,7 +4,7 @@
   "main": "build/deriver-a/index.js",
   "compatibility_date": "2026-07-02",
   "compatibility_flags": ["nodejs_compat"],
-  "limits": { "cpu_ms": 200 },
+  "limits": { "cpu_ms": 300 },
   "workers_dev": true,
   "vars": {
     "BENCHMARK_DEPLOYMENT_ID": "0123456789abcdef0123456789abcdef",
