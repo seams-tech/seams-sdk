@@ -1517,10 +1517,12 @@ async fn execute_cloudflare_router_tenant_root_stub_private_call_v1<
     })?;
     let status = response.status_code();
     if !(200..=299).contains(&status) {
-        let _ = read_bounded_response_body(&mut response, response_max_bytes, label).await?;
+        let response_body =
+            read_bounded_response_body(&mut response, response_max_bytes, label).await?;
+        let response_detail = String::from_utf8_lossy(&response_body);
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            format!("{label} returned HTTP {status}"),
+            format!("{label} returned HTTP {status}: {}", response_detail.trim()),
         ));
     }
     if !response_has_json_content_type(&response, label)? {
@@ -5074,12 +5076,28 @@ impl RouterAbTenantRootCreationDurableObject {
                         }
                         active.record.clone()
                     }
-                    CloudflareTenantRootRefreshFenceV1::Terminal { .. } => {
-                        outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
-                            RouterAbProtocolErrorCode::ConflictingPair,
-                            "tenant-root refresh operation is terminal",
-                        ))));
-                        return Ok(());
+                    CloudflareTenantRootRefreshFenceV1::Terminal {
+                        attempt: stored, ..
+                    } => {
+                        if stored == &attempt {
+                            active.record.clone()
+                        } else {
+                            let mut record = active.record.clone();
+                            record.fence = CloudflareTenantRootRefreshFenceV1::Reserved { attempt };
+                            transaction
+                                .delete(TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1)
+                                .await?;
+                            transaction
+                                .delete(TENANT_ROOT_REFRESH_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1)
+                                .await?;
+                            transaction
+                                .delete(TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_STORAGE_KEY_V1)
+                                .await?;
+                            transaction
+                                .put(TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1, &record)
+                                .await?;
+                            record
+                        }
                     }
                 };
                 let response = match response_record {
@@ -6028,6 +6046,10 @@ impl RouterAbTenantRootCreationDurableObject {
             .map_err(durable_storage_protocol_error)?;
         transaction
             .delete(TENANT_ROOT_REFRESH_INSTALLATION_CHECKPOINT_STORAGE_KEY_V1)
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        transaction
+            .delete(TENANT_ROOT_REFRESH_CONTRIBUTION_RENDEZVOUS_STORAGE_KEY_V1)
             .await
             .map_err(durable_storage_protocol_error)?;
         Ok(())
@@ -7767,9 +7789,10 @@ fn reserve_managed_restore_authorization_fence_v1(
                 request,
             )?;
             let attempt = managed_restore_authorization_attempt_from_challenge_v1(&challenge)?;
-            if !matches!(
+            if matches!(
                 active.record.fence,
-                CloudflareTenantRootRefreshFenceV1::Open
+                CloudflareTenantRootRefreshFenceV1::Reserved { .. }
+                    | CloudflareTenantRootRefreshFenceV1::Executed { .. }
             ) {
                 return Err(managed_restore_conflict(
                     "tenant-root managed-restore authorization conflicts with an active refresh",
@@ -12512,6 +12535,45 @@ mod tests {
             checkpoint_managed_restore_authorization_fence_v1(&refreshed, checkpoint)
                 .expect("managed-restore terminal retry after refresh"),
             CloudflareTenantRootManagedRestoreFenceEvaluationV1::Replay { .. }
+        ));
+    }
+
+    #[test]
+    fn managed_restore_reserves_after_a_completed_refresh() {
+        let (active, journal, issuer_keys) = managed_restore_active_state_fixture();
+        let context = refresh_context(&active);
+        let command_a = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverA);
+        let command_b = refresh_command(&active, &context, TwoPartyDeriverRole::DeriverB);
+        let refresh_attempt = refresh_attempt_from_commands(&context, &command_a, &command_b)
+            .expect("refresh attempt");
+        let result_revision = active
+            .record
+            .lifecycle_revision
+            .checked_add(1)
+            .expect("refresh result revision");
+        let activation_receipt = refresh_activation_receipt(&active, &context);
+        let mut refreshed_record =
+            refresh_active_state_record_from_verified_receipt(activation_receipt, result_revision)
+                .expect("refreshed active record");
+        let response = refresh_terminal_response_from_record(&refreshed_record);
+        refreshed_record.fence = CloudflareTenantRootRefreshFenceV1::Terminal {
+            attempt: refresh_attempt,
+            outcome: CloudflareTenantRootRefreshTerminalOutcomeV1::Completed,
+            response,
+        };
+        let refreshed =
+            validate_refresh_active_state_record(refreshed_record, authority(0x71), &issuer_keys)
+                .expect("completed refresh state");
+
+        assert!(matches!(
+            reserve_managed_restore_authorization_fence_v1(
+                &refreshed,
+                &journal,
+                managed_restore_request(0x66),
+                1_000_250,
+            )
+            .expect("managed restore after completed refresh"),
+            CloudflareTenantRootManagedRestoreFenceEvaluationV1::Commit { .. }
         ));
     }
 

@@ -12,7 +12,7 @@ use super::{
     TenantRootCommandReplayKeyV1, TenantRootCommandScopeV1, TenantRootControlPlaneAuthorityIdV1,
     TenantRootCustodyLineageId, TenantRootEpochCommitmentsV1, TenantRootIdentityDigestV1,
     TenantRootLifecycleReceiptDigestV1, TenantRootProtocolDigestV1, TenantRootShareEpoch,
-    TENANT_ROOT_MAX_LIFETIME_MS_V1,
+    TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1, TENANT_ROOT_MAX_LIFETIME_MS_V1,
 };
 
 const TENANT_ROOT_ROLE_REFRESH_COMMAND_DOMAIN_V1: &[u8] = b"tenant_root_role_refresh_command_v1";
@@ -679,9 +679,15 @@ impl VerifiedTenantRootRoleRefreshCommandV1 {
         self.canonical_bytes
     }
 
-    /// Requires the command to be within its inclusive issue-to-expiry window.
+    /// Requires the command to be within its issue-to-expiry window plus peer clock skew.
     pub fn require_fresh(&self, now_ms: u64) -> RouterAbDerivationResult<()> {
-        if now_ms < self.issued_at_ms() || now_ms > self.expires_at_ms() {
+        let earliest_acceptable_now = self
+            .issued_at_ms()
+            .saturating_sub(TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1);
+        let latest_acceptable_now = self
+            .expires_at_ms()
+            .saturating_add(TENANT_ROOT_MAX_CLOCK_SKEW_MS_V1);
+        if now_ms < earliest_acceptable_now || now_ms > latest_acceptable_now {
             return Err(replay_mismatch(
                 "tenant-root role refresh command is outside its freshness window",
             ));

@@ -264,9 +264,15 @@ fn sign_decode_verify_round_trip_projects_the_refresh_scope() {
 
     assert!(verified.require_fresh(verified.issued_at_ms()).is_ok());
     assert!(verified.require_fresh(verified.expires_at_ms()).is_ok());
-    assert!(verified.require_fresh(verified.issued_at_ms() - 1).is_err());
+    assert!(verified.require_fresh(verified.issued_at_ms() - 1).is_ok());
     assert!(verified
-        .require_fresh(verified.expires_at_ms() + 1)
+        .require_fresh(verified.issued_at_ms() - 60_001)
+        .is_err());
+    assert!(verified
+        .require_fresh(verified.expires_at_ms() + 60_000)
+        .is_ok());
+    assert!(verified
+        .require_fresh(verified.expires_at_ms() + 60_001)
         .is_err());
     assert_eq!(verified.into_canonical_bytes(), bytes);
 }

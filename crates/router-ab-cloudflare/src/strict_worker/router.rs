@@ -1273,7 +1273,19 @@ async fn coordinate_cloudflare_router_tenant_root_managed_restore_v1(
         )
         .await?;
     require_cloudflare_router_managed_restore_checkpoint_artifacts_v1(&active, &authorization)?;
-    if let Some(response) = replay_terminal_refresh_response_v1(&active.refresh_fence)? {
+    let terminal_belongs_to_this_restore = matches!(
+        &active.refresh_fence,
+        CloudflareTenantRootRefreshFenceV1::Terminal { attempt, .. }
+            if attempt.current_epoch == authorization.active_epoch
+    );
+    if terminal_belongs_to_this_restore {
+        let response =
+            replay_terminal_refresh_response_v1(&active.refresh_fence)?.ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "tenant-root managed-restore terminal refresh response is unavailable",
+                )
+            })?;
         replay_cloudflare_router_terminal_refresh_cleanup_v1(
             env,
             runtime,
@@ -1286,50 +1298,58 @@ async fn coordinate_cloudflare_router_tenant_root_managed_restore_v1(
     }
     require_cloudflare_router_managed_restore_checkpoint_current_state_v1(&active, &authorization)?;
 
+    let must_start_forward_refresh = matches!(
+        &active.refresh_fence,
+        CloudflareTenantRootRefreshFenceV1::Open
+    ) || matches!(
+        &active.refresh_fence,
+        CloudflareTenantRootRefreshFenceV1::Terminal { attempt, .. }
+            if attempt.next_epoch == authorization.active_epoch
+    );
+
     let (refresh_context_b64u, deriver_a_refresh_command_b64u, deriver_b_refresh_command_b64u) =
-        match active.refresh_fence {
-            CloudflareTenantRootRefreshFenceV1::Open => {
-                let deriver = match authorization.unavailable_role {
-                    TenantRootManagedRestoreRoleV1::DeriverA => &runtime.bindings().deriver_a,
-                    TenantRootManagedRestoreRoleV1::DeriverB => &runtime.bindings().deriver_b,
+        if must_start_forward_refresh {
+            let deriver = match authorization.unavailable_role {
+                TenantRootManagedRestoreRoleV1::DeriverA => &runtime.bindings().deriver_a,
+                TenantRootManagedRestoreRoleV1::DeriverB => &runtime.bindings().deriver_b,
+            };
+            execute_cloudflare_deriver_tenant_root_managed_restore_service_call_v1(
+                env,
+                deriver,
+                &CloudflareDeriverTenantRootManagedRestoreRequestV1 {
+                    public_state_b64u: authorization.public_state_b64u.clone(),
+                    restore_capability_b64u: authorization.restore_capability_b64u.clone(),
+                },
+                authorization.capability.capability_digest(),
+            )
+            .await?;
+
+            let refresh_commands_request =
+                CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 {
+                    identity_digest_b64u: crate::encode_base64url_bytes_v1(
+                        authorization.identity_digest.as_bytes(),
+                    ),
+                    custody_lineage_b64u: authorization.custody_lineage.to_base64url(),
                 };
-                execute_cloudflare_deriver_tenant_root_managed_restore_service_call_v1(
+            let issued =
+                execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
                     env,
-                    deriver,
-                    &CloudflareDeriverTenantRootManagedRestoreRequestV1 {
-                        public_state_b64u: authorization.public_state_b64u.clone(),
-                        restore_capability_b64u: authorization.restore_capability_b64u.clone(),
-                    },
-                    authorization.capability.capability_digest(),
+                    &refresh_commands_request,
                 )
                 .await?;
-
-                let refresh_commands_request =
-                    CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 {
-                        identity_digest_b64u: crate::encode_base64url_bytes_v1(
-                            authorization.identity_digest.as_bytes(),
-                        ),
-                        custody_lineage_b64u: authorization.custody_lineage.to_base64url(),
-                    };
-                let issued =
-                    execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
-                        env,
-                        &refresh_commands_request,
-                    )
-                    .await?;
-                let reserved =
-                    execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1(
-                        env,
-                        authorization.identity_digest,
-                        authorization.custody_lineage,
-                        issued.refresh_context_b64u,
-                        issued.deriver_a_refresh_command_b64u,
-                        issued.deriver_b_refresh_command_b64u,
-                    )
-                    .await?;
-                refresh_attempt_packages_v1(reserved.refresh_fence)?
-            }
-            fence => refresh_attempt_packages_v1(fence)?,
+            let reserved =
+                execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1(
+                    env,
+                    authorization.identity_digest,
+                    authorization.custody_lineage,
+                    issued.refresh_context_b64u,
+                    issued.deriver_a_refresh_command_b64u,
+                    issued.deriver_b_refresh_command_b64u,
+                )
+                .await?;
+            refresh_attempt_packages_v1(reserved.refresh_fence)?
+        } else {
+            refresh_attempt_packages_v1(active.refresh_fence)?
         };
 
     let deriver_a_request = match authorization.unavailable_role {
