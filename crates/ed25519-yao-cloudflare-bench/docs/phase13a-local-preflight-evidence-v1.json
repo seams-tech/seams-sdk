@@ -6,9 +6,9 @@
   "production_eligible": false,
   "validated_inputs": {
     "schema": "ed25519_yao_local_readiness_inputs_v1",
-    "file_count": 2870,
-    "total_bytes": 47326913,
-    "sha256": "d07dcaab31fb64fe62d658761e88a156627897e4b2b2f2255644df72dd8ddf51"
+    "file_count": 2926,
+    "total_bytes": 48964232,
+    "sha256": "e98072980921cbe45846ced99ef9e1e0a39e5745d119913e7c1b1c5ff310ea5b"
   },
   "phase9c_validation": {
     "receipt_path": "crates/router-ab-dev/target/phase9c-yaos-ab-local-evidence-v1.json",
