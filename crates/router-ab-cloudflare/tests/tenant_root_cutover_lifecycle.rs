@@ -1,8 +1,9 @@
 use router_ab_cloudflare::{
     TenantRootCutoverAttemptIdV1, TenantRootCutoverCanaryCurveV1, TenantRootCutoverCanaryReceiptV1,
-    TenantRootCutoverDrainReceiptV1, TenantRootCutoverFenceReceiptV1, TenantRootCutoverOpenV1,
-    TenantRootCutoverPrerequisitesV1, TenantRootCutoverProfileActivationReceiptV1,
-    TenantRootCutoverReceiptDigestV1, TenantRootCutoverRecoveryActionV1,
+    TenantRootCutoverDerivationGateV1, TenantRootCutoverDrainReceiptV1,
+    TenantRootCutoverFenceReceiptV1, TenantRootCutoverOpenV1, TenantRootCutoverPrerequisitesV1,
+    TenantRootCutoverProfileActivationReceiptV1, TenantRootCutoverReceiptDigestV1,
+    TenantRootCutoverRecordUpdateV1, TenantRootCutoverRecordV1, TenantRootCutoverRecoveryActionV1,
     TenantRootCutoverRevisionVerificationReceiptV1, TenantRootCutoverRollbackReceiptV1,
     TenantRootCutoverStateV1, TenantRootCutoverUnfenceReceiptV1, TenantRootDerivationProfileV1,
     TenantRootParticipantStorageRevisionV1, TenantRootProtocolVersionV1,
@@ -655,4 +656,113 @@ fn lifecycle_rejects_non_monotonic_transition_timestamps() {
         .expect("ready");
     assert!(ready.clone().unfence(unfence_receipt(13, 600)).is_err());
     assert!(ready.unfence(unfence_receipt(13, 599)).is_err());
+}
+
+#[test]
+fn durable_record_round_trip_restores_exact_fence_and_forward_only_state() {
+    let open_state = TenantRootCutoverStateV1::from(open());
+    assert_eq!(
+        TenantRootCutoverRecordV1::new(open_state).derivation_gate(),
+        TenantRootCutoverDerivationGateV1::LegacyProfileOpen
+    );
+
+    let fenced = open().fence(fence_receipt(4, 100)).expect("fenced");
+    assert_eq!(
+        TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(fenced.clone()))
+            .derivation_gate(),
+        TenantRootCutoverDerivationGateV1::FencedRollbackAvailable
+    );
+    let committed = fenced
+        .drain(drain_receipt(5, 6, 200))
+        .expect("drained")
+        .verify_revisions(revision_receipt(7, 8, 9, 300))
+        .expect("verified")
+        .activate_profile(activation_receipt(10, 400))
+        .expect("activated")
+        .admit_first_derivation(
+            TenantRootCutoverCanaryReceiptV1::new(
+                attempt_id(),
+                TenantRootCutoverCanaryCurveV1::Ecdsa,
+                receipt(11),
+                500,
+            )
+            .expect("first canary"),
+        )
+        .expect("committed");
+    let record = TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(committed));
+    assert_eq!(record.revision(), 5);
+    assert_eq!(
+        record.derivation_gate(),
+        TenantRootCutoverDerivationGateV1::FencedForwardOnly
+    );
+    let encoded = serde_json::to_vec(&record).expect("serialize durable record");
+    let decoded: TenantRootCutoverRecordV1 =
+        serde_json::from_slice(&encoded).expect("restore durable record");
+    assert_eq!(decoded, record);
+    assert_eq!(decoded.into_state().revision(), 5);
+}
+
+#[test]
+fn durable_record_rejects_revision_drift_unknown_fields_and_invalid_restart_transition() {
+    let committed = open()
+        .fence(fence_receipt(4, 100))
+        .expect("fenced")
+        .drain(drain_receipt(5, 6, 200))
+        .expect("drained")
+        .verify_revisions(revision_receipt(7, 8, 9, 300))
+        .expect("verified")
+        .activate_profile(activation_receipt(10, 400))
+        .expect("activated")
+        .admit_first_derivation(
+            TenantRootCutoverCanaryReceiptV1::new(
+                attempt_id(),
+                TenantRootCutoverCanaryCurveV1::Ecdsa,
+                receipt(11),
+                500,
+            )
+            .expect("first canary"),
+        )
+        .expect("committed");
+    let record = TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(committed));
+    let mut value = serde_json::to_value(&record).expect("record JSON");
+
+    value["revision"] = serde_json::json!(4);
+    assert!(serde_json::from_value::<TenantRootCutoverRecordV1>(value.clone()).is_err());
+
+    value["revision"] = serde_json::json!(5);
+    value["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<TenantRootCutoverRecordV1>(value.clone()).is_err());
+
+    value
+        .as_object_mut()
+        .expect("record object")
+        .remove("unexpected");
+    value["state"]["state"]["firstCanary"]["completedAtMs"] = serde_json::json!(400);
+    assert!(serde_json::from_value::<TenantRootCutoverRecordV1>(value).is_err());
+}
+
+#[test]
+fn durable_record_accepts_exact_replay_and_adjacent_updates_only() {
+    let open_record = TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(open()));
+    assert_eq!(
+        open_record
+            .classify_update_after(&open_record)
+            .expect("exact replay"),
+        TenantRootCutoverRecordUpdateV1::ExactReplay
+    );
+
+    let fenced = open().fence(fence_receipt(4, 100)).expect("fenced");
+    let fenced_record =
+        TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(fenced.clone()));
+    assert_eq!(
+        fenced_record
+            .classify_update_after(&open_record)
+            .expect("adjacent fence"),
+        TenantRootCutoverRecordUpdateV1::Advanced
+    );
+
+    let drained = fenced.drain(drain_receipt(5, 6, 200)).expect("drained");
+    let drained_record = TenantRootCutoverRecordV1::new(TenantRootCutoverStateV1::from(drained));
+    assert!(drained_record.classify_update_after(&open_record).is_err());
+    assert!(open_record.classify_update_after(&fenced_record).is_err());
 }
