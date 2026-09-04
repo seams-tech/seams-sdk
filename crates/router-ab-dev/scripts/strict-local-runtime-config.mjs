@@ -40,6 +40,8 @@ const STRICT_WORKER_ROLES = Object.freeze([
 ]);
 const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex');
 const X25519_SPKI_PREFIX = Buffer.from('302a300506032b656e032100', 'hex');
+const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
 
 export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const repoRoot = path.resolve(input.repoRoot);
@@ -52,6 +54,12 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
   const deriverBEnv = readEnvMap(path.join(localEnvRoot, '.env.router-ab.deriver-b.local'));
   const signingWorkerEnv = readEnvMap(
     path.join(localEnvRoot, '.env.router-ab.signing-worker.local'),
+  );
+  const tenantRootControlPlaneEnv = readEnvMap(
+    path.join(repoRoot, 'crates', 'router-ab-dev', 'env', 'tenant-root-control-plane.local.example'),
+  );
+  const tenantRootIssuerVerifyingKeysJson = localTenantRootIssuerVerifyingKeysJson(
+    tenantRootControlPlaneEnv,
   );
   const localConsoleOrganizationId = resolveLocalConsoleOrganizationId({ localEnvRoot });
   const privateD1Keys = Object.freeze({
@@ -101,6 +109,7 @@ export function prepareRouterAbStrictLocalRuntimeConfigs(input) {
       localConsoleOrganizationId,
       ceremonyJwksJson,
       privateD1Keys,
+      tenantRootIssuerVerifyingKeysJson,
     });
     if (privateD1) {
       config = setPrivateD1MigrationsDirectory(config, repoRoot, privateD1.migrationsDirectory);
@@ -202,7 +211,7 @@ function applyRoleVars(source, role, env) {
         'ROUTER_JWT_JWKS_JSON',
         env.ceremonyJwksJson,
       );
-      return replaceTopologyPublicVars(config, env);
+      return setTenantRootIssuerVerifyingKeys(replaceTopologyPublicVars(config, env), env);
     case 'deriver-a':
       config = setTomlSectionAssignment(
         config,
@@ -222,7 +231,10 @@ function applyRoleVars(source, role, env) {
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
-      return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA);
+      return setTenantRootIssuerVerifyingKeys(
+        setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverA),
+        env,
+      );
     case 'deriver-b':
       config = setTomlSectionAssignment(
         config,
@@ -242,7 +254,10 @@ function applyRoleVars(source, role, env) {
         'DERIVER_B_PEER_VERIFYING_KEY_HEX',
         localPeerVerifyingKeyHex(requiredEnv(env.deriverBEnv, 'DERIVER_B_PEER_SIGNING_KEY')),
       );
-      return setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverB);
+      return setTenantRootIssuerVerifyingKeys(
+        setPrivateD1Vars(config, 'DERIVER_ROLE_PRIVATE_D1', env.privateD1Keys.deriverB),
+        env,
+      );
     case 'signing-worker':
       config = setTomlSectionAssignment(
         config,
@@ -254,6 +269,40 @@ function applyRoleVars(source, role, env) {
     default:
       throw new Error(`unsupported strict local worker role ${role}`);
   }
+}
+
+function setTenantRootIssuerVerifyingKeys(source, env) {
+  return setTomlSectionAssignment(
+    source,
+    'vars',
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+    env.tenantRootIssuerVerifyingKeysJson,
+  );
+}
+
+function localTenantRootIssuerVerifyingKeysJson(env) {
+  const issuerKeyId = requiredEnv(env, 'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID');
+  const seedHex = requiredEnv(env, 'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY');
+  if (!/^[0-9a-f]{64}$/.test(seedHex)) {
+    throw new Error('local tenant-root control-plane issuer seed must be 32 lowercase hexadecimal bytes');
+  }
+  const privateKey = createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_PREFIX, Buffer.from(seedHex, 'hex')]),
+    format: 'der',
+    type: 'pkcs8',
+  });
+  const publicKeyDer = createPublicKey(privateKey).export({ format: 'der', type: 'spki' });
+  if (!publicKeyDer.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)) {
+    throw new Error('local tenant-root control-plane issuer public key encoding is invalid');
+  }
+  return JSON.stringify({
+    keys: [
+      {
+        issuer_key_id: issuerKeyId,
+        verifying_key_hex: publicKeyDer.subarray(ED25519_SPKI_PREFIX.length).toString('hex'),
+      },
+    ],
+  });
 }
 
 function replaceTopologyPublicVars(source, env) {

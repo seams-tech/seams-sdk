@@ -45,6 +45,9 @@ const unusedCredentialStore: ThresholdCredentialStorePort = {
   async listWalletPasskeyAuthenticators() {
     throw new Error('credential store must not be used with supplied authorization');
   },
+  async listWalletAuthMethodsV2ForWallet() {
+    throw new Error('credential store must not be used with supplied authorization');
+  },
   async resolveProfileAccountContext() {
     throw new Error('credential store must not be used with supplied authorization');
   },

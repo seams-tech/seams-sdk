@@ -54,7 +54,10 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import { seedFoundingPasskeyAuthority } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
+import {
+  FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
+  FixtureRouterAbEcdsaStrictRegistrationPort,
+} from '../helpers/routerAbSigningRuntimeTestUtils';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import { parsePasskeyEd25519YaoSyncResponseV1 } from '../../packages/wallet/src/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 
@@ -389,6 +392,7 @@ function createBaseService(
     relayerPublicKey: 'ed25519:relay-public-key',
     accountIdDerivationSecret: 'sync-account-test-derivation-secret',
     ecdsaStrictRegistration: new FixtureRouterAbEcdsaStrictRegistrationPort(),
+    tenantRootCustodyLineage: FIXTURE_TENANT_ROOT_CUSTODY_LINEAGE,
   });
 }
 
