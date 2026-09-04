@@ -59,6 +59,7 @@ use crate::{
     decode_base64url_bytes_v1, decode_role_verifying_keys, encode_base64url_bytes_v1,
     validate_tenant_root_creation_role_verifying_keys_against_peer_v1, RouterAbProtocolError,
     RouterAbProtocolErrorCode, RouterAbProtocolResult, TenantRootCreationRoleVerifyingKeysV1,
+    TenantRootCutoverRecordUpdateV1, TenantRootCutoverRecordV1,
 };
 
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
@@ -99,6 +100,53 @@ pub(crate) const TENANT_ROOT_CREATION_COMMITMENT_RENDEZVOUS_STORAGE_KEY_V1: &str
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const TENANT_ROOT_CREATION_CLEANUP_CHECKPOINT_STORAGE_KEY_V1: &str =
     "creation/v1/cleanup-checkpoint";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_CUTOVER_READ_PATH: &str =
+    "/router-ab/internal/tenant-root/cutover/v1/read";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const CLOUDFLARE_TENANT_ROOT_CUTOVER_WRITE_PATH: &str =
+    "/router-ab/internal/tenant-root/cutover/v1/write";
+#[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
+pub(crate) const TENANT_ROOT_CUTOVER_STORAGE_KEY_V1: &str = "cutover/v1/state";
+const TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1: usize = 64 * 1024;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCutoverReadRequestV1 {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CloudflareTenantRootCutoverWriteRequestV1 {
+    Initialize {
+        record: TenantRootCutoverRecordV1,
+    },
+    Update {
+        expected_revision: u64,
+        record: TenantRootCutoverRecordV1,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CloudflareTenantRootCutoverWriteOutcomeV1 {
+    Initialized,
+    ExactReplay,
+    Advanced,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootCutoverWriteResponseV1 {
+    outcome: CloudflareTenantRootCutoverWriteOutcomeV1,
+    record: TenantRootCutoverRecordV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CloudflareTenantRootCutoverReadResponseV1 {
+    Empty,
+    Present { record: TenantRootCutoverRecordV1 },
+}
 
 #[cfg_attr(not(feature = "workers-rs"), allow(dead_code))]
 pub(crate) const CLOUDFLARE_TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_PATH: &str =
@@ -3682,6 +3730,56 @@ fn installation_response(
     })
 }
 
+fn evaluate_cutover_write(
+    current: Option<&TenantRootCutoverRecordV1>,
+    request: CloudflareTenantRootCutoverWriteRequestV1,
+) -> RouterAbProtocolResult<CloudflareTenantRootCutoverWriteResponseV1> {
+    match request {
+        CloudflareTenantRootCutoverWriteRequestV1::Initialize { record } => match current {
+            None if record.revision() == 0 => Ok(CloudflareTenantRootCutoverWriteResponseV1 {
+                outcome: CloudflareTenantRootCutoverWriteOutcomeV1::Initialized,
+                record,
+            }),
+            None => Err(cutover_conflict(
+                "R120 cutover initialization must persist revision 0",
+            )),
+            Some(stored) if stored == &record => Ok(CloudflareTenantRootCutoverWriteResponseV1 {
+                outcome: CloudflareTenantRootCutoverWriteOutcomeV1::ExactReplay,
+                record,
+            }),
+            Some(_) => Err(cutover_conflict(
+                "R120 cutover initialization conflicts with durable state",
+            )),
+        },
+        CloudflareTenantRootCutoverWriteRequestV1::Update {
+            expected_revision,
+            record,
+        } => {
+            let stored = current.ok_or_else(|| {
+                cutover_conflict("R120 cutover update has no durable initial state")
+            })?;
+            if stored.revision() != expected_revision {
+                return Err(cutover_conflict(
+                    "R120 cutover update expected another durable revision",
+                ));
+            }
+            let outcome = match record.classify_update_after(stored)? {
+                TenantRootCutoverRecordUpdateV1::ExactReplay => {
+                    CloudflareTenantRootCutoverWriteOutcomeV1::ExactReplay
+                }
+                TenantRootCutoverRecordUpdateV1::Advanced => {
+                    CloudflareTenantRootCutoverWriteOutcomeV1::Advanced
+                }
+            };
+            Ok(CloudflareTenantRootCutoverWriteResponseV1 { outcome, record })
+        }
+    }
+}
+
+fn cutover_conflict(message: &'static str) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(RouterAbProtocolErrorCode::ConflictingPair, message)
+}
+
 #[cfg(feature = "workers-rs")]
 #[worker::durable_object(fetch)]
 pub struct RouterAbTenantRootCreationDurableObject {
@@ -3722,6 +3820,57 @@ impl worker::DurableObject for RouterAbTenantRootCreationDurableObject {
         }
         let path = request.path();
         match path.as_str() {
+            CLOUDFLARE_TENANT_ROOT_CUTOVER_READ_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root cutover read request requires JSON",
+                        415,
+                    );
+                }
+                if decode_bounded_json_request::<CloudflareTenantRootCutoverReadRequestV1>(
+                    &mut request,
+                    TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1,
+                )
+                .await
+                .is_err()
+                {
+                    return worker::Response::error(
+                        "tenant-root cutover read request rejected",
+                        400,
+                    );
+                }
+                match self.read_cutover_record().await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
+            CLOUDFLARE_TENANT_ROOT_CUTOVER_WRITE_PATH => {
+                if !request_has_json_content_type(&request)? {
+                    return worker::Response::error(
+                        "tenant-root cutover write request requires JSON",
+                        415,
+                    );
+                }
+                let parsed = match decode_bounded_json_request::<
+                    CloudflareTenantRootCutoverWriteRequestV1,
+                >(
+                    &mut request, TENANT_ROOT_CUTOVER_REQUEST_MAX_BYTES_V1
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return worker::Response::error(
+                            "tenant-root cutover write request rejected",
+                            400,
+                        )
+                    }
+                };
+                match self.persist_cutover_record(parsed).await {
+                    Ok(response) => worker::Response::from_json(&response),
+                    Err(error) => tenant_root_creation_do_error_response(error),
+                }
+            }
             CLOUDFLARE_TENANT_ROOT_CREATION_JOURNAL_PATH => {
                 if !request_has_json_content_type(&request)? {
                     return worker::Response::error(
@@ -4109,6 +4258,62 @@ pub(crate) fn build_creation_journal_read_response(
 
 #[cfg(feature = "workers-rs")]
 impl RouterAbTenantRootCreationDurableObject {
+    async fn read_cutover_record(
+        &self,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCutoverReadResponseV1> {
+        let record = storage_get_optional::<TenantRootCutoverRecordV1>(
+            &self.storage,
+            TENANT_ROOT_CUTOVER_STORAGE_KEY_V1,
+        )
+        .await
+        .map_err(durable_storage_protocol_error)?;
+        Ok(match record {
+            Some(record) => CloudflareTenantRootCutoverReadResponseV1::Present { record },
+            None => CloudflareTenantRootCutoverReadResponseV1::Empty,
+        })
+    }
+
+    async fn persist_cutover_record(
+        &self,
+        request: CloudflareTenantRootCutoverWriteRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootCutoverWriteResponseV1> {
+        let outcome: Rc<
+            RefCell<Option<RouterAbProtocolResult<CloudflareTenantRootCutoverWriteResponseV1>>>,
+        > = Rc::new(RefCell::new(None));
+        let outcome_for_transaction = Rc::clone(&outcome);
+        self.storage
+            .transaction(move |transaction| async move {
+                let current = transaction_get_optional::<TenantRootCutoverRecordV1>(
+                    &transaction,
+                    TENANT_ROOT_CUTOVER_STORAGE_KEY_V1,
+                )
+                .await?;
+                let response = match evaluate_cutover_write(current.as_ref(), request) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        outcome_for_transaction.replace(Some(Err(error)));
+                        return Ok(());
+                    }
+                };
+                if response.outcome != CloudflareTenantRootCutoverWriteOutcomeV1::ExactReplay {
+                    transaction
+                        .put(TENANT_ROOT_CUTOVER_STORAGE_KEY_V1, &response.record)
+                        .await?;
+                }
+                outcome_for_transaction.replace(Some(Ok(response)));
+                Ok(())
+            })
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        let response = outcome.borrow_mut().take().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root cutover transaction did not produce an outcome",
+            )
+        })?;
+        response
+    }
+
     /// Serves the persisted creation state to an authenticated internal caller.
     pub(crate) async fn read_creation_journal(
         &self,
@@ -9809,6 +10014,11 @@ const fn base64url_len_for_bytes(bytes: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        TenantRootCutoverAttemptIdV1, TenantRootCutoverDrainReceiptV1,
+        TenantRootCutoverFenceReceiptV1, TenantRootCutoverOpenV1, TenantRootCutoverPrerequisitesV1,
+        TenantRootCutoverReceiptDigestV1,
+    };
     use curve25519_dalek::scalar::Scalar;
     use ed25519_dalek::SigningKey;
     use rand_chacha::ChaCha20Rng;
@@ -13296,6 +13506,114 @@ mod tests {
         })
         .to_string();
         assert!(decode_role_verifying_keys(&missing_role).is_err());
+    }
+
+    #[test]
+    fn cutover_do_write_initializes_replays_and_advances_one_revision() {
+        let attempt = TenantRootCutoverAttemptIdV1::from_bytes([0x41; 16]).expect("attempt");
+        let receipt =
+            |seed| TenantRootCutoverReceiptDigestV1::from_bytes([seed; 32]).expect("receipt");
+        let prerequisites =
+            TenantRootCutoverPrerequisitesV1::new(receipt(1), receipt(2), receipt(3), [0x44; 32])
+                .expect("prerequisites");
+        let open = TenantRootCutoverOpenV1::new(attempt, prerequisites);
+        let open_record = TenantRootCutoverRecordV1::new(open.clone().into());
+        let initialized = evaluate_cutover_write(
+            None,
+            CloudflareTenantRootCutoverWriteRequestV1::Initialize {
+                record: open_record.clone(),
+            },
+        )
+        .expect("initialize");
+        assert_eq!(
+            initialized.outcome,
+            CloudflareTenantRootCutoverWriteOutcomeV1::Initialized
+        );
+
+        let replayed = evaluate_cutover_write(
+            Some(&open_record),
+            CloudflareTenantRootCutoverWriteRequestV1::Initialize {
+                record: open_record.clone(),
+            },
+        )
+        .expect("replay initialize");
+        assert_eq!(
+            replayed.outcome,
+            CloudflareTenantRootCutoverWriteOutcomeV1::ExactReplay
+        );
+
+        let fenced = open
+            .fence(
+                TenantRootCutoverFenceReceiptV1::new(attempt, receipt(4), 100)
+                    .expect("fence receipt"),
+            )
+            .expect("fenced");
+        let fenced_record = TenantRootCutoverRecordV1::new(fenced.into());
+        let advanced = evaluate_cutover_write(
+            Some(&open_record),
+            CloudflareTenantRootCutoverWriteRequestV1::Update {
+                expected_revision: 0,
+                record: fenced_record.clone(),
+            },
+        )
+        .expect("advance");
+        assert_eq!(
+            advanced.outcome,
+            CloudflareTenantRootCutoverWriteOutcomeV1::Advanced
+        );
+        assert_eq!(advanced.record, fenced_record);
+    }
+
+    #[test]
+    fn cutover_do_write_rejects_missing_stale_and_skipped_state() {
+        let attempt = TenantRootCutoverAttemptIdV1::from_bytes([0x41; 16]).expect("attempt");
+        let receipt =
+            |seed| TenantRootCutoverReceiptDigestV1::from_bytes([seed; 32]).expect("receipt");
+        let prerequisites =
+            TenantRootCutoverPrerequisitesV1::new(receipt(1), receipt(2), receipt(3), [0x44; 32])
+                .expect("prerequisites");
+        let open = TenantRootCutoverOpenV1::new(attempt, prerequisites);
+        let open_record = TenantRootCutoverRecordV1::new(open.clone().into());
+        let fenced = open
+            .fence(
+                TenantRootCutoverFenceReceiptV1::new(attempt, receipt(4), 100)
+                    .expect("fence receipt"),
+            )
+            .expect("fenced");
+        let fenced_record = TenantRootCutoverRecordV1::new(fenced.clone().into());
+
+        assert!(evaluate_cutover_write(
+            None,
+            CloudflareTenantRootCutoverWriteRequestV1::Update {
+                expected_revision: 0,
+                record: fenced_record.clone(),
+            },
+        )
+        .is_err());
+        assert!(evaluate_cutover_write(
+            Some(&open_record),
+            CloudflareTenantRootCutoverWriteRequestV1::Update {
+                expected_revision: 1,
+                record: fenced_record,
+            },
+        )
+        .is_err());
+
+        let drained = fenced
+            .drain(
+                TenantRootCutoverDrainReceiptV1::new(attempt, receipt(5), receipt(6), 200)
+                    .expect("drain receipt"),
+            )
+            .expect("drained");
+        let drained_record = TenantRootCutoverRecordV1::new(drained.into());
+        assert!(evaluate_cutover_write(
+            Some(&open_record),
+            CloudflareTenantRootCutoverWriteRequestV1::Update {
+                expected_revision: 0,
+                record: drained_record,
+            },
+        )
+        .is_err());
     }
 
     fn lower_hex(bytes: &[u8]) -> String {
