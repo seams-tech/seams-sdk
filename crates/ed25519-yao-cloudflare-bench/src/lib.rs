@@ -3775,10 +3775,13 @@ mod adapter {
                     feature = "deriver-a-same-account-websocket"
                 ))]
                 if let Ok(mut socket) = timeout_socket.try_borrow_mut() {
-                    if result.is_err() {
-                        if let Some(socket) = socket.as_ref() {
-                            let _ignored = socket.close(Some(1011), Some("ceremony failed"));
-                        }
+                    if let Some(socket) = socket.as_ref() {
+                        let (code, reason) = if result.is_ok() {
+                            (1000, "complete")
+                        } else {
+                            (1011, "ceremony failed")
+                        };
+                        let _ignored = socket.close(Some(code), Some(reason));
                     }
                     socket.take();
                 }
