@@ -1,0 +1,105 @@
+name: Deploy / staging-testnet / tenant-root-control-plane
+
+# The tenant-root control plane is the sole holder of the R120 issuer private
+# signing key, so it deploys from its own workflow against its own GitHub
+# Environment. That environment carries a least-privilege Cloudflare API token
+# scoped to this Worker alone: reusing the shared backend token would give the
+# service split runtime isolation without administrative isolation.
+#
+# Order for an existing environment: this Worker deploys BEFORE the Router, so
+# the Router's TENANT_ROOT_CONTROL_PLANE service binding resolves on its next
+# deploy. Its own external Durable Object binding resolves against the Router
+# already deployed in the lane.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-staging-testnet-tenant-root-control-plane
+  cancel-in-progress: false
+
+env:
+  DEPLOY_LANE: staging-testnet
+  DEPLOY_SHA: ${{ github.sha }}
+  RUST_TOOLCHAIN: 1.96.0
+
+jobs:
+  preflight:
+    name: Preflight / staging-testnet / tenant-root-control-plane
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: staging-tenant-root-control-plane
+    env:
+      DEPLOYMENT_SECRETS_JSON: ${{ toJSON(secrets) }}
+      DEPLOYMENT_VARS_JSON: ${{ toJSON(vars) }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Require dev branch
+        run: test "$GITHUB_REF" = refs/heads/dev
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Check component configuration
+        run: node scripts/deploy-backend.mjs preflight --lane "$DEPLOY_LANE" --component tenant-root-control-plane
+
+  deploy:
+    name: Deploy / staging-testnet / tenant-root-control-plane
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment:
+      name: staging-tenant-root-control-plane
+    env:
+      # Least-privilege token scoped to this Worker, installed on this
+      # environment only. Never the shared backend deployment token.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: ${{ secrets.ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET }}
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY: ${{ secrets.TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY }}
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID: ${{ vars.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID }}
+      TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON: ${{ vars.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON }}
+      OPERATIONS_INCIDENT_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_OPERATIONS_INCIDENT_VERIFYING_KEY_HEX }}
+      DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_A_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX }}
+      DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_DERIVER_B_CUSTODY_AUTHORITY_VERIFYING_KEY_HEX }}
+      TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON: ${{ vars.ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_GRANT_AUTHORITY_VERIFYING_KEYS_JSON }}
+      DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID: ${{ vars.ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID }}
+      DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID: ${{ vars.ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID }}
+      ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON: ${{ vars.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON }}
+    steps:
+      - name: Checkout workflow revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+      - name: Require dev branch
+        run: test "$GITHUB_REF" = refs/heads/dev
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install deployment dependencies
+        run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Build tenant-root-control-plane Worker
+        run: pnpm -C crates/router-ab-cloudflare run build:tenant-root-control-plane
+        env:
+          ROUTER_AB_WORKER_BUILD_PROFILE: release
+      - name: Check control-plane build entry
+        run: test -s crates/router-ab-cloudflare/build/tenant-root-control-plane/worker/shim.mjs
+      - name: Deploy tenant-root control plane
+        run: pnpm deploy:backend deploy --lane "$DEPLOY_LANE" --component tenant-root-control-plane
