@@ -517,18 +517,18 @@
               "workerName": "seams-sdk-d1-gateway",
               "consoleD1": {
                 "name": "seams-console",
-                "id": "6d9ec624-7dc0-4619-ba67-af2e329ed5f1"
+                "id": "f8fd0f23-1d3e-4031-9977-c5937b7b2470"
               },
               "signerD1": {
                 "name": "seams-signer",
-                "id": "3f9eab6f-99ee-4512-b09f-02d2bf931d62"
+                "id": "ee646e75-1425-44c4-9b89-e5425fc23217"
               }
             },
             "tenant": {
               "namespace": "seams-production",
               "orgId": "org_production",
               "projectId": "project_production",
-              "environmentId": "production"
+              "environmentId": "project_production:prod"
             },
             "origins": {
               "gateway": "https://api.seams.sh",
