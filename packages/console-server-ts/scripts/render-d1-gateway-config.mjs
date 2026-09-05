@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import {
@@ -24,13 +23,7 @@ import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 const VALID_LANES = new Set(['staging-testnet', 'production-testnet', 'production-mainnet']);
 
 function walletServerMigrationsDirectory(packageRoot) {
-  const requireFromWalletConsole = createRequire(
-    path.join(packageRoot, '../wallet-console-server-ts/package.json'),
-  );
-  const walletServerRoot = path.dirname(
-    requireFromWalletConsole.resolve('@seams/wallet-server/package.json'),
-  );
-  return path.join(walletServerRoot, 'migrations', 'd1-signer');
+  return path.join(packageRoot, '../wallet-server/migrations/d1-signer');
 }
 
 function main() {
