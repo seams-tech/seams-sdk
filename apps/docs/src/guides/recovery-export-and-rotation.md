@@ -10,6 +10,13 @@ see recovery and export. Recovery restores authorized access. Export reveals
 key material. Rotation changes a signer, custody share, or wallet key version.
 Keep these operations separate in UI, policy, audit, and result handling.
 
+This guide concerns wallet-user operations. Tenant administrators manage a
+separate derivation-root lifecycle: refreshing A/B operational shares preserves
+the effective tenant root and wallet identities. R120 implements that server
+path; R121's administrative dashboard and tenant-controlled recovery tooling
+are planned. See [recovery and portability](/deploy-and-operate/recovery-and-portability)
+for their availability and the later R122 migration boundary.
+
 ## Safety checklist
 
 1. Require fresh operation-specific authentication.

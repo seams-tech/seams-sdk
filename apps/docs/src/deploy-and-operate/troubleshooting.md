@@ -49,6 +49,37 @@ after proving the previous transaction was not accepted.
 React `Theme` tokens and wallet-owned surfaces receive matching SDK appearance
 tokens for the active mode. Verify contrast after correcting both channels.
 
+## Tenant-root refresh is throttled or already running
+
+**Boundary:** tenant-root operation admission. In releases containing R120's
+hourly gate, HTTP 429 with `tenant_root_refresh_throttled` returns `retryAtMs`
+and `Retry-After`. Wait until that server-computed time before starting a new
+manual refresh. HTTP 409 with `tenant_root_refresh_in_progress` identifies a
+different operation already in progress. Preserve the original `operationId`
+when retrying an interrupted request; generating new IDs cannot resume it.
+
+Throttle deployment is pending. These responses describe the implemented
+contract, not an assurance that every deployed environment already enforces it.
+
+## Tenant-root backup cannot be opened
+
+**Boundary:** role-local backup provider. Check the affected role's KMS key
+reference, enabled key version, service-account access, and retained R2 object
+against the authoritative activation evidence. Keep credentials and decrypted
+material out of logs. Restore access to the recorded key version; creating a
+replacement key cannot decrypt ciphertext written under the lost version.
+
+A complete database-loss incident also requires authoritative identity and
+activation records. Follow [tenant-root backup recovery requirements](/deploy-and-operate/tenant-root-backups#backup-refresh-and-restore).
+
+## Refresh activated but retirement is incomplete
+
+**Boundary:** tenant-root lifecycle cleanup. Inspect the authoritative revision
+and role receipts. Resume the original operation's cleanup rather than
+reactivating the retired epoch or starting repeated rotations. Working signing
+does not prove retirement completed, and deleting active backup objects does
+not prove all historical ciphertext is unrecoverable.
+
 ## What to collect for support
 
 Collect release, environment, browser, operation ID, public error code, event

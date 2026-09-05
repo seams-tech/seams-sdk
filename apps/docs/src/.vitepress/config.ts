@@ -169,6 +169,7 @@ const deployAndOperateSection: DefaultTheme.SidebarItem = {
     { text: 'Hosted integration', link: '/deploy-and-operate/hosted-integration' },
     { text: 'Security boundaries', link: '/deploy-and-operate/security-boundaries' },
     { text: 'Tenant-root backups', link: '/deploy-and-operate/tenant-root-backups' },
+    { text: 'Recovery and portability', link: '/deploy-and-operate/recovery-and-portability' },
     { text: 'Environment', link: '/deploy-and-operate/environment' },
     { text: 'Production checklist', link: '/deploy-and-operate/production-checklist' },
     { text: 'Observability and audit', link: '/deploy-and-operate/observability-and-audit' },

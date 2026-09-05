@@ -12,6 +12,11 @@ of each share in Cloudflare R2, protected by separate Google Cloud KMS keys.
 Wallet custody seeds and client signing roots remain in their existing custody
 paths; these backups cover the server's tenant-root shares.
 
+This page covers R120's managed availability backups. R121's planned
+tenant-controlled recovery packages and R122's planned wallet migration package
+have different contents and authorization. See
+[recovery and portability](/deploy-and-operate/recovery-and-portability).
+
 ## Storage and key ownership
 
 | Material | Deriver A | Deriver B |

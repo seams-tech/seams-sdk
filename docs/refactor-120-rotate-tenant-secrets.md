@@ -10,8 +10,10 @@ Ed25519 derivation architecture revised: August 29, 2026
 
 Release status updated: September 5, 2026
 
-Status: production rollout. The active plan has completed 26 of 27 criteria
-(96.3%).
+Status: complete. R120 implementation closed September 5, 2026, at the project
+owner's direction. The remaining full-lane deployment and public
+registration/signing proof are retained below as release follow-up work;
+closure does not assert that those checks passed.
 The cryptographic core, tenant-root creation, production derivation, refresh,
 crash recovery, managed one-role restore, release tests, same-account benchmark,
 and staging operating path are complete. The previously released runtime tree
@@ -38,7 +40,7 @@ testnet, and staging Derivers and their GitHub deployment environments.
 Historical Worker versions and local backups may retain old values; this is
 operational cleanup, with no claim of cryptographic erasure.
 
-The remaining release criterion is the complete public Gateway/Console/frontend
+The release follow-up is the complete public Gateway/Console/frontend
 deployment, including the one-hour manual refresh throttle, with fresh ECDSA
 and Ed25519 registration/signing proof. The reset requires no wallet
 migration, ceremony drain, mixed-profile serving, or legacy rollback window.
@@ -2141,16 +2143,16 @@ wrapper or compatibility union.
 
 ## Active Implementation Plan
 
-This is the only execution checklist for R120. The historical ledger below is
-retained as design evidence; its unchecked rows do not block implementation or
-count toward progress.
+This is the completed implementation checklist for R120, with release follow-up
+tracked separately. The historical ledger below is retained as design evidence;
+its unchecked rows do not reopen the refactor or count toward progress.
 
 ### Current release state
 
-- Active completion is 26/27 (96.3%). Foundation and Milestones 1-3 and 5 are
-  complete; Milestone 4 has five of six criteria complete. The remaining release
-  includes deployment of the manual refresh throttle and proof of public
-  production registration/signing.
+- R120 implementation is complete. The former 27-item checklist had 26 verified
+  completions; its remaining deployment/proof item has been moved to release
+  follow-up, rather than marked as passed. This scope change closes the refactor
+  without changing the recorded deployment evidence.
 - Production-testnet proof `proof-1788540559100` replayed creation exactly,
   refreshed epoch 1 to 2, restored an intentionally deleted Deriver A epoch-2
   row, and completed the mandatory forward refresh to epoch 3. The refresh and
@@ -2168,6 +2170,16 @@ count toward progress.
   `deriver-a-backup` and `deriver-b-backup` keys (version 1). Each role's
   service account is authorized only on its own key. Live creation passed;
   public registration/signing remains to be proved.
+
+### Release follow-up (outside the closed refactor)
+
+- [ ] Deploy the committed R120 release, including the hourly refresh throttle,
+      through the complete staging and production Gateway/Console/frontend and
+      runtime lanes; prove fresh ECDSA and Ed25519 registration and signing.
+      Production databases were already recreated on September 5. Do not repeat
+      that destructive reset as a deployment prerequisite. The pre-launch reset
+      removed the earlier need for wallet migration or an old-profile rollback
+      window; it does not establish that later deployment or signing checks pass.
 
 ### Completed foundation
 
@@ -2221,9 +2233,9 @@ count toward progress.
 - [x] Prove that ECDSA registration preserves the expected public key and
       address through the live server path.
 
-Release-wide cleanup, dashboards, managed restore, interruption recovery, and
-broad evidence generation remain in Milestones 3 and 4; they do not block this
-ECDSA/Ed25519 continuity path or count toward its completion.
+Managed restore, interruption recovery, and release-wide cleanup are recorded
+in Milestones 3 and 4. Dashboard implementation belongs to R121; it does not
+change this ECDSA/Ed25519 continuity result.
 
 ### Milestone 3: make refresh and recovery operational
 
@@ -2270,11 +2282,6 @@ ECDSA/Ed25519 continuity path or count toward its completion.
       `router-ab-core`, `threshold-prf`, `router-ab-ed25519-yao`, Yao anti-drift,
       Router-server and unit TypeScript checks, the tenant-root Console identity
       route test, and the Ed25519-only registration/add-method intended contract.
-- [ ] Recreate the production databases empty, deploy one exact R120 revision,
-      and prove fresh ECDSA and Ed25519 registration and signing. The destructive
-      pre-launch reset removes any need for ceremony fencing, draining, wallet
-      migration, client mutation, mixed-profile serving, or old-profile
-      rollback.
 - [x] Before production launch, remove obsolete deployment-root code, bindings,
       Secrets, temporary allowances, dead exports, and superseded tests. Delete
       migrations that were never deployed and preserve applied migration
@@ -2285,8 +2292,8 @@ ECDSA/Ed25519 continuity path or count toward its completion.
       deployment versions and offline backups remain outside this active-path
       cleanup claim.
 - [x] Update the active architecture and operations documentation and leave the
-      historical ledger unchanged. R120 is complete when the remaining public
-      production deployment and registration/signing criterion closes.
+      historical ledger unchanged. Public deployment and registration/signing
+      verification are tracked in the release follow-up above.
 
 ### Milestone 5: throttle manual tenant-root refresh
 
@@ -2320,7 +2327,7 @@ production state transitions through successful completion, persisted replay,
 pending-operation conflicts, cooldown rejection, the exact hour boundary,
 tenant isolation, and managed-restore admission. Console coverage checks the
 429 retry contract and rejects tenant-supplied bypass fields. Production
-deployment of this change remains part of Milestone 4's open release criterion.
+deployment of this change remains in the release follow-up above.
 
 ### Execution rules
 

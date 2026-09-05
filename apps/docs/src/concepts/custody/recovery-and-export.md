@@ -8,6 +8,11 @@ description: Compare recovery, key export, and the fresh authorization each high
 Recovery and export prove that the user can regain control or leave the system
 while ordinary signing remains share-based.
 
+The flows below concern a wallet user's access and keys. Managed tenant-root
+restore, planned tenant-controlled root recovery, and planned deployment
+migration operate at different boundaries. See
+[recovery and portability](/deploy-and-operate/recovery-and-portability).
+
 ## Sealed refresh
 
 Sealed refresh restores sealed signing material after accidental

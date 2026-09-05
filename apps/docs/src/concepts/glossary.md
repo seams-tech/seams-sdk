@@ -17,6 +17,12 @@ description: Define the wallet, custody, policy, session, signing, and Router A/
 | Policy epoch          | Versioned policy state used for revocation-sensitive decisions.                                                                                       |
 | Router                | The public service boundary for auth, policy, replay, quota, budget, and request routing.                                                             |
 | Server share          | The hosted or self-hosted server side of a threshold key.                                                                                             |
+| Tenant derivation root | Independently randomized server-side derivation origin for one tenant, held as separate A/B operational shares. |
+| Tenant-root operational share | One Deriver's secret share of the tenant root; refresh changes the pair while preserving the effective root. |
+| Share epoch | Metadata identifying an operational-share generation; it is not key material. |
+| Custody lineage | The identity of one tenant-root custody lifecycle, used to isolate commands and replay state across restored destinations. |
+| Managed tenant-root backup | A service-held encrypted role-share backup used by the authorized managed restore path. |
+| Tenant recovery set | Planned tenant-held A/B recovery packages and a public manifest for exact-root restoration, separate from wallet portability. |
 | SigningWorker         | The hot normal-signing server role that uses activated server signing material.                                                                       |
 | Wallet Session quota  | A bounded reusable allowance with TTL and remaining uses for signing.                                                                                 |
 | Capability grant      | One-operation authority bound to an exact capability and intent.                                                                                      |

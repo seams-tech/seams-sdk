@@ -24,6 +24,10 @@ See [tenant-root backups](/deploy-and-operate/tenant-root-backups) for the
 separate A/B recovery copies in R2, Google KMS key ownership, restore behavior,
 and operating costs.
 
+Read [recovery and portability](/deploy-and-operate/recovery-and-portability)
+before choosing a backup strategy. It separates managed root recovery from
+planned tenant-controlled recovery and wallet/deployment migration.
+
 Repository operators should also follow the private deployment runbook for the
 exact lane, environment, and release workflow. Public application developers do
 not need custody credentials or internal service topology.
