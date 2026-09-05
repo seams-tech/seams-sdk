@@ -12,6 +12,7 @@ import {
   assertExpectedDurableObjectBindings,
   validateDeploymentKeyPairs,
 } from '../../scripts/deploy-backend.mjs';
+import { readBackendLane } from '../../scripts/deployment-targets.mjs';
 
 type CommandResult = {
   readonly status: number | null;
@@ -92,7 +93,7 @@ function generateX25519Pair(): { readonly privateKeyHex: string; readonly public
 function validateMismatchedDeriverAKeyPair(): void {
   const current = generateX25519Pair();
   const mismatched = generateX25519Pair();
-  validateDeploymentKeyPairs('deriver-a', {
+  validateDeploymentKeyPairs(readBackendLane('staging-testnet'), 'deriver-a', {
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${current.privateKeyHex}`,
     DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: mismatched.publicKey,
     DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${current.privateKeyHex}`,
@@ -106,7 +107,7 @@ function validateMismatchedDeriverATenantRootOnlineKeyPair(): void {
   const online = generateX25519Pair();
   const backup = generateX25519Pair();
   const mismatched = generateX25519Pair();
-  validateDeploymentKeyPairs('deriver-a', {
+  validateDeploymentKeyPairs(readBackendLane('staging-testnet'), 'deriver-a', {
     DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY: `hpke-x25519-private-v1:${envelope.privateKeyHex}`,
     DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: envelope.publicKey,
     DERIVER_A_ROLE_PRIVATE_D1_KEK: `hpke-x25519-role-private-d1-private-v1:${privateD1.privateKeyHex}`,
@@ -593,11 +594,12 @@ test('issuer key-set validation fails closed on every mismatch', () => {
 });
 
 test('backend deployment accepts components that do not own deployment key pairs', () => {
-  expect(() => validateDeploymentKeyPairs('wallet-runtime', {})).not.toThrow();
-  expect(() => validateDeploymentKeyPairs('console', {})).not.toThrow();
+  const lane = readBackendLane('staging-testnet');
+  expect(() => validateDeploymentKeyPairs(lane, 'wallet-runtime', {})).not.toThrow();
+  expect(() => validateDeploymentKeyPairs(lane, 'console', {})).not.toThrow();
   // The control plane DOES own a key pair: its issuer seed must reproduce the
   // verifying key published under its active key id.
-  expect(() => validateDeploymentKeyPairs('tenant-root-control-plane', {})).toThrow(
+  expect(() => validateDeploymentKeyPairs(lane, 'tenant-root-control-plane', {})).toThrow(
     /TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY is required/u,
   );
 });

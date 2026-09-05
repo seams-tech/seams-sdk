@@ -243,7 +243,7 @@ where
 /// separate, one-use, and exactly retryable, so a lost response after sealing
 /// re-reserves the same command rather than creating a second share.
 #[cfg(feature = "workers-rs")]
-pub(crate) fn seal_initial_role_creation_for_persistence_v1<Online, Backup>(
+pub(crate) async fn seal_initial_role_creation_for_persistence_v1<Online, Backup>(
     finalized: VerifiedTenantRootInitialRoleAttemptV1,
     signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
     provider_config: &TenantRootRoleRuntimeProviderConfigV1,
@@ -268,6 +268,7 @@ where
         managed_backup_provider,
         staged_at_ms,
     )
+    .await
     .map_err(candidate_derivation_error)?;
     // The command names the tenant; the caller's identity must be that tenant,
     // so a mis-supplied identity cannot seal a share under the wrong record.
@@ -647,7 +648,7 @@ where
 /// role-private pending-row insertion path.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn finalize_tenant_root_role_refresh_v1<Online, Backup, R>(
+pub(crate) async fn finalize_tenant_root_role_refresh_v1<Online, Backup, R>(
     pending: PendingTenantRootRefreshRoleAttemptV1,
     commitment_pair: VerifiedTenantRootRefreshCommitmentPairV1,
     peer_contribution: RootShareRefreshContributionWire,
@@ -676,7 +677,8 @@ where
         online_provider,
         managed_backup_provider,
         staged_at_ms,
-    )?;
+    )
+    .await?;
     let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
     Ok(TenantRootRoleRefreshProgressV1::Sealed {
         signed_commitment,
@@ -700,7 +702,7 @@ where
 /// never has to survive across a request boundary.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn execute_tenant_root_role_creation_v1<Online, Backup, R>(
+pub(crate) async fn execute_tenant_root_role_creation_v1<Online, Backup, R>(
     package_bytes: &[u8],
     peer_signed_commitment: Option<&[u8]>,
     worker_role: TwoPartyDeriverRole,
@@ -767,7 +769,8 @@ where
             managed_backup_provider,
             identity,
             now_ms,
-        )?;
+        )
+        .await?;
     let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
     Ok(TenantRootRoleCreationProgressV1::Sealed {
         signed_commitment,
@@ -1113,7 +1116,8 @@ where
             managed_backup_provider,
             identity,
             now_ms,
-        )?;
+        )
+        .await?;
     let signed_installation_evidence = input.installation_evidence_bytes().to_vec();
     Ok(TenantRootRoleCreationProgressV1::Sealed {
         signed_commitment,
@@ -3199,7 +3203,8 @@ async fn execute_tenant_root_refresh_from_source_v1(
         &mut online_provider,
         &mut backup_provider,
         now_ms,
-    )?;
+    )
+    .await?;
     let evidence_bytes = refresh.installation_evidence_bytes().to_vec();
     let evidence = TenantRootSignedShareInstallationEvidenceV1::decode_and_verify_canonical_bytes(
         &evidence_bytes,
@@ -4312,7 +4317,8 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_create_role_share_v1(
                 &mut backup_provider,
                 now_ms,
                 &mut rng,
-            )?;
+            )
+            .await?;
             (progress, package_bytes, authority_id)
         }
     };
@@ -4556,6 +4562,7 @@ pub(crate) async fn handle_cloudflare_deriver_tenant_root_managed_restore_v1(
     let mut provider =
         crate::env::load_cloudflare_tenant_root_operational_rotation_provider_v1(env, worker_role)?;
     let restored_share = open_tenant_root_managed_backup_v1(managed_backup, &mut provider)
+        .await
         .map_err(candidate_derivation_error)?;
     if restored_share.share_commitment() != expected_commitment {
         return Err(RouterAbProtocolError::new(
@@ -5067,12 +5074,12 @@ pub(crate) trait TenantRootOnlineRoleShareProviderV1 {
 
 /// Operations needed by one role-local managed-backup provider.
 pub(crate) trait TenantRootManagedBackupProviderV1 {
-    fn seal_managed_backup(
+    async fn seal_managed_backup(
         &mut self,
         request: &TenantRootManagedBackupSealRequestV1,
     ) -> RouterAbDerivationResult<Vec<u8>>;
 
-    fn open_managed_backup(
+    async fn open_managed_backup(
         &mut self,
         backup: VerifiedTenantRootManagedBackupV1,
     ) -> RouterAbDerivationResult<VerifiedTenantRootManagedBackupShareV1>;
@@ -5152,7 +5159,7 @@ impl TenantRootRoleRuntimeArtifactsV1 {
 /// Composes one verified initial role attempt through online and managed sealing.
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compose_initial_tenant_root_role_runtime_v1<Online, Backup>(
+pub(crate) async fn compose_initial_tenant_root_role_runtime_v1<Online, Backup>(
     attempt: VerifiedTenantRootInitialRoleAttemptV1,
     signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
     provider_config: &TenantRootRoleRuntimeProviderConfigV1,
@@ -5242,7 +5249,9 @@ where
     )?;
     let managed_request =
         TenantRootManagedBackupSealRequestV1::new(managed_binding.clone(), managed_share)?;
-    let managed_ciphertext = managed_backup_provider.seal_managed_backup(&managed_request)?;
+    let managed_ciphertext = managed_backup_provider
+        .seal_managed_backup(&managed_request)
+        .await?;
     let signed_backup = signer.sign_managed_backup(managed_request, managed_ciphertext)?;
     let managed_backup = verify_managed_backup_roundtrip_v1(
         &signed_backup,
@@ -5250,6 +5259,7 @@ where
         &signer.verifying_key_bytes(),
         managed_backup_provider,
     )
+    .await
     .map_err(|error| {
         RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::MalformedInput,
@@ -5375,7 +5385,7 @@ where
 
 #[cfg(feature = "workers-rs")]
 #[allow(clippy::too_many_arguments)]
-fn seal_refresh_role_for_persistence_v1<Online, Backup>(
+async fn seal_refresh_role_for_persistence_v1<Online, Backup>(
     attempt: VerifiedTenantRootRefreshRoleAttemptV1,
     role_signer: &crate::CloudflareTenantRootCreationRoleSignerV1,
     identity: TenantRootIdentityV1,
@@ -5447,6 +5457,7 @@ where
             .map_err(candidate_derivation_error)?;
     let managed_ciphertext = managed_backup_provider
         .seal_managed_backup(&managed_request)
+        .await
         .map_err(candidate_derivation_error)?;
     let signed_backup = role_signer
         .sign_managed_backup(managed_request, managed_ciphertext)
@@ -5456,7 +5467,8 @@ where
         &managed_binding,
         &role_signer.verifying_key_bytes(),
         managed_backup_provider,
-    )?;
+    )
+    .await?;
     let input = CloudflareTenantRootRefreshInputV1::new(
         command,
         evidence,
@@ -5483,21 +5495,21 @@ where
 }
 
 /// Opens a managed-backup artifact and re-verifies its role share commitment.
-pub(crate) fn open_tenant_root_managed_backup_v1<Provider>(
+pub(crate) async fn open_tenant_root_managed_backup_v1<Provider>(
     backup: VerifiedTenantRootManagedBackupV1,
     provider: &mut Provider,
 ) -> RouterAbDerivationResult<VerifiedTenantRootManagedBackupShareV1>
 where
     Provider: TenantRootManagedBackupProviderV1,
 {
-    provider.open_managed_backup(backup)
+    provider.open_managed_backup(backup).await
 }
 
 /// Reopens a freshly signed managed backup before it can cross into D1.
 /// Re-parsing gives the provider the exact canonical artifact that will be
 /// persisted and avoids retaining a second in-memory verified token.
 #[cfg(feature = "workers-rs")]
-fn verify_managed_backup_roundtrip_v1<Provider>(
+async fn verify_managed_backup_roundtrip_v1<Provider>(
     signed_backup: &TenantRootSignedManagedBackupV1,
     expected_binding: &TenantRootManagedBackupBindingV1,
     trusted_role_verifying_key: &[u8; 32],
@@ -5516,6 +5528,7 @@ where
         .map_err(candidate_derivation_error)?;
     let opened = provider
         .open_managed_backup(for_open)
+        .await
         .map_err(candidate_derivation_error)?;
     if opened.binding() != expected_binding {
         return Err(RouterAbProtocolError::new(
@@ -5634,6 +5647,11 @@ pub(crate) mod tests {
 
     use crate::tenant_root_operational_provider::CloudflareTenantRootOperationalRotationProviderV1;
 
+    #[cfg(feature = "workers-rs")]
+    fn block_on<F: core::future::Future>(future: F) -> F::Output {
+        futures::executor::block_on(future)
+    }
+
     pub(crate) const ISSUER_KEY: [u8; 32] = [0x41; 32];
     pub(crate) const ISSUER_KEY_ID: &str = "tenant-root-issuer-v1";
     pub(crate) const ISSUED_AT_MS: u64 = 1_000_000;
@@ -5683,7 +5701,7 @@ pub(crate) mod tests {
     }
 
     impl TenantRootManagedBackupProviderV1 for InMemoryProvider {
-        fn seal_managed_backup(
+        async fn seal_managed_backup(
             &mut self,
             request: &TenantRootManagedBackupSealRequestV1,
         ) -> RouterAbDerivationResult<Vec<u8>> {
@@ -5694,7 +5712,7 @@ pub(crate) mod tests {
             Ok(vec![0xb5; 96])
         }
 
-        fn open_managed_backup(
+        async fn open_managed_backup(
             &mut self,
             backup: VerifiedTenantRootManagedBackupV1,
         ) -> RouterAbDerivationResult<VerifiedTenantRootManagedBackupShareV1> {
@@ -6208,26 +6226,28 @@ pub(crate) mod tests {
                 .expect("provider config");
         let mut online_provider_a = InMemoryProvider::new();
         let mut backup_provider_a = InMemoryProvider::new();
-        let (command_a, evidence_a, artifacts_a) = compose_initial_tenant_root_role_runtime_v1(
-            attempt_a,
-            &signer(TwoPartyDeriverRole::DeriverA),
-            &config,
-            &mut online_provider_a,
-            &mut backup_provider_a,
-            ISSUED_AT_MS + 2,
-        )
-        .expect("composed Deriver A role runtime");
+        let (command_a, evidence_a, artifacts_a) =
+            block_on(compose_initial_tenant_root_role_runtime_v1(
+                attempt_a,
+                &signer(TwoPartyDeriverRole::DeriverA),
+                &config,
+                &mut online_provider_a,
+                &mut backup_provider_a,
+                ISSUED_AT_MS + 2,
+            ))
+            .expect("composed Deriver A role runtime");
         let mut online_provider_b = InMemoryProvider::new();
         let mut backup_provider_b = InMemoryProvider::new();
-        let (command_b, evidence_b, artifacts_b) = compose_initial_tenant_root_role_runtime_v1(
-            attempt_b,
-            &signer(TwoPartyDeriverRole::DeriverB),
-            &config,
-            &mut online_provider_b,
-            &mut backup_provider_b,
-            ISSUED_AT_MS + 2,
-        )
-        .expect("composed Deriver B role runtime");
+        let (command_b, evidence_b, artifacts_b) =
+            block_on(compose_initial_tenant_root_role_runtime_v1(
+                attempt_b,
+                &signer(TwoPartyDeriverRole::DeriverB),
+                &config,
+                &mut online_provider_b,
+                &mut backup_provider_b,
+                ISSUED_AT_MS + 2,
+            ))
+            .expect("composed Deriver B role runtime");
 
         assert_eq!(command_a.role(), TwoPartyDeriverRole::DeriverA);
         assert_eq!(command_b.role(), TwoPartyDeriverRole::DeriverB);
@@ -6303,9 +6323,11 @@ pub(crate) mod tests {
         let online_opened =
             open_tenant_root_online_role_share_v1(online_sealed, &mut online_provider_a)
                 .expect("opened online share");
-        let managed_opened =
-            open_tenant_root_managed_backup_v1(managed_backup, &mut backup_provider_a)
-                .expect("opened managed backup");
+        let managed_opened = block_on(open_tenant_root_managed_backup_v1(
+            managed_backup,
+            &mut backup_provider_a,
+        ))
+        .expect("opened managed backup");
         assert_eq!(online_opened.role(), TwoPartyDeriverRole::DeriverA);
         assert_eq!(
             managed_opened.role(),
@@ -6325,9 +6347,11 @@ pub(crate) mod tests {
         let online_opened =
             open_tenant_root_online_role_share_v1(online_sealed, &mut online_provider_b)
                 .expect("opened online share");
-        let managed_opened =
-            open_tenant_root_managed_backup_v1(managed_backup, &mut backup_provider_b)
-                .expect("opened managed backup");
+        let managed_opened = block_on(open_tenant_root_managed_backup_v1(
+            managed_backup,
+            &mut backup_provider_b,
+        ))
+        .expect("opened managed backup");
         assert_eq!(online_opened.role(), TwoPartyDeriverRole::DeriverB);
         assert_eq!(
             managed_opened.role(),
@@ -6392,7 +6416,7 @@ pub(crate) mod tests {
         let mut provider = InMemoryProvider::new();
         let mut backup_provider = InMemoryProvider::new();
         let role_signer = signer(role);
-        let progress = finalize_tenant_root_role_refresh_v1(
+        let progress = block_on(finalize_tenant_root_role_refresh_v1(
             pending,
             pair,
             peer_pending.contribution_for_peer(),
@@ -6403,7 +6427,7 @@ pub(crate) mod tests {
             &mut backup_provider,
             ISSUED_AT_MS + 11,
             &mut ChaCha20Rng::from_seed([0x71; 32]),
-        )
+        ))
         .expect("finalized refresh role attempt");
 
         let TenantRootRoleRefreshProgressV1::Sealed {
@@ -6509,7 +6533,7 @@ pub(crate) mod tests {
         let mut provider = InMemoryProvider::new();
         let mut backup_provider = InMemoryProvider::new();
         let role_signer = signer(role);
-        assert!(finalize_tenant_root_role_refresh_v1(
+        assert!(block_on(finalize_tenant_root_role_refresh_v1(
             pending,
             pair,
             wrong_peer_contribution,
@@ -6520,7 +6544,7 @@ pub(crate) mod tests {
             &mut backup_provider,
             ISSUED_AT_MS + 11,
             &mut ChaCha20Rng::from_seed([0x71; 32]),
-        )
+        ))
         .is_err());
         assert_eq!(provider.online_role, None);
         assert!(provider.online_share.is_none());
@@ -6577,14 +6601,14 @@ pub(crate) mod tests {
                 .expect("provider config");
         let mut online_provider = InMemoryProvider::new();
         let mut backup_provider = InMemoryProvider::new();
-        let result = compose_initial_tenant_root_role_runtime_v1(
+        let result = block_on(compose_initial_tenant_root_role_runtime_v1(
             attempt,
             &alternate_signer,
             &config,
             &mut online_provider,
             &mut backup_provider,
             ISSUED_AT_MS + 2,
-        );
+        ));
 
         assert!(result.is_err());
         assert_eq!(online_provider.online_role, None);
@@ -6617,14 +6641,14 @@ pub(crate) mod tests {
             operational_provider(TwoPartyDeriverRole::DeriverA, 0x81, 0x82, ONLINE_REF);
         let mut backup_provider =
             operational_provider(TwoPartyDeriverRole::DeriverA, 0x81, 0x82, ONLINE_REF);
-        let (_, _, artifacts) = compose_initial_tenant_root_role_runtime_v1(
+        let (_, _, artifacts) = block_on(compose_initial_tenant_root_role_runtime_v1(
             attempt,
             &signer(TwoPartyDeriverRole::DeriverA),
             &config,
             &mut online_provider,
             &mut backup_provider,
             ISSUED_AT_MS + 2,
-        )
+        ))
         .expect("composed operational provider artifacts");
         let (online_sealed, managed_backup, provider_canary_receipt) = artifacts.into_parts();
         assert!(!provider_canary_receipt.is_empty());
@@ -6635,9 +6659,11 @@ pub(crate) mod tests {
         let online_opened =
             open_tenant_root_online_role_share_v1(online_sealed.clone(), &mut online_provider)
                 .expect("opened online share");
-        let managed_opened =
-            open_tenant_root_managed_backup_v1(managed_backup, &mut backup_provider)
-                .expect("opened managed backup");
+        let managed_opened = block_on(open_tenant_root_managed_backup_v1(
+            managed_backup,
+            &mut backup_provider,
+        ))
+        .expect("opened managed backup");
         assert_eq!(
             online_opened.share_commitment(),
             managed_opened.share_commitment()
@@ -6682,7 +6708,11 @@ pub(crate) mod tests {
             )
             .expect("reconstruct managed backup after rejection checks");
         assert!(
-            open_tenant_root_managed_backup_v1(reconstructed_backup, &mut wrong_provider).is_err(),
+            block_on(open_tenant_root_managed_backup_v1(
+                reconstructed_backup,
+                &mut wrong_provider
+            ))
+            .is_err(),
             "a managed backup sealed to another provider key must not open"
         );
     }
@@ -7239,7 +7269,7 @@ pub(crate) mod live_execution_tests {
     ) -> RouterAbProtocolResult<TenantRootRoleCreationProgressV1> {
         let mut online = InMemoryProvider::new();
         let mut backup = InMemoryProvider::new();
-        execute_tenant_root_role_creation_v1(
+        futures::executor::block_on(execute_tenant_root_role_creation_v1(
             &package_bytes(role, &ISSUER_KEY),
             peer,
             role,
@@ -7252,7 +7282,7 @@ pub(crate) mod live_execution_tests {
             &mut backup,
             ISSUED_AT_MS + 2,
             &mut ChaCha20Rng::from_seed([seed; 32]),
-        )
+        ))
     }
 
     /// The first leg commits without creating anything durable.
@@ -7313,7 +7343,7 @@ pub(crate) mod live_execution_tests {
             let mut online = InMemoryProvider::new();
             let mut backup = InMemoryProvider::new();
             assert!(
-                execute_tenant_root_role_creation_v1(
+                futures::executor::block_on(execute_tenant_root_role_creation_v1(
                     &package_bytes(packaged, &ISSUER_KEY),
                     None,
                     worker,
@@ -7326,7 +7356,7 @@ pub(crate) mod live_execution_tests {
                     &mut backup,
                     ISSUED_AT_MS + 2,
                     &mut ChaCha20Rng::from_seed([0x77; 32]),
-                )
+                ))
                 .is_err(),
                 "{worker:?} must refuse a {packaged:?} package"
             );
@@ -7657,7 +7687,8 @@ mod initiator_tests {
                 &mut backup,
                 ISSUED_AT_MS + 2,
                 &mut ChaCha20Rng::from_seed([0x88; 32]),
-            )?;
+            )
+            .await?;
             let TenantRootRoleCreationProgressV1::Sealed {
                 signed_commitment,
                 signed_installation_evidence,
@@ -7932,7 +7963,7 @@ mod progress_debug_tests {
     fn the_progress_debug_never_prints_share_material() {
         let mut online = InMemoryProvider::new();
         let mut backup = InMemoryProvider::new();
-        let progress = execute_tenant_root_role_creation_v1(
+        let progress = futures::executor::block_on(execute_tenant_root_role_creation_v1(
             &package_bytes(TwoPartyDeriverRole::DeriverA, &ISSUER_KEY),
             None,
             TwoPartyDeriverRole::DeriverA,
@@ -7945,7 +7976,7 @@ mod progress_debug_tests {
             &mut backup,
             ISSUED_AT_MS + 2,
             &mut ChaCha20Rng::from_seed([0x77; 32]),
-        )
+        ))
         .expect("committed");
         let rendered = format!("{progress:?}");
         assert!(

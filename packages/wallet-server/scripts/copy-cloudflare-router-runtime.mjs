@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceRoot = path.resolve(packageRoot, '..', '..', 'crates', 'router-ab-cloudflare');
 const outputRoot = path.join(packageRoot, 'cloudflare-router-ab');
-const roles = ['router', 'deriver-a', 'deriver-b', 'signing-worker'];
+const roles = ['router', 'deriver-a', 'deriver-b', 'signing-worker', 'tenant-root-control-plane'];
 
 fs.rmSync(outputRoot, { recursive: true, force: true });
 fs.mkdirSync(outputRoot, { recursive: true });

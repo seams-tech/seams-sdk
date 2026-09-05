@@ -30,6 +30,7 @@ strict-worker-signing-worker-entrypoint = ["workers-rs"]
 strict-worker-tenant-root-control-plane-entrypoint = ["workers-rs"]
 workers-rs = [
     "dep:wasm-bindgen",
+    "dep:web-sys",
     "dep:worker",
 ]
 
@@ -59,6 +60,13 @@ sha2 = "0.10"
 signer-core = { path = "../signer-core", default-features = false, features = ["near-threshold-ed25519"] }
 subtle = "=2.6.1"
 wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3.100", optional = true, features = [
+    "Crypto",
+    "CryptoKey",
+    "RsaHashedImportParams",
+    "SubtleCrypto",
+    "WorkerGlobalScope",
+] }
 worker = { version = "=0.8.4", optional = true, features = ["d1"] }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
