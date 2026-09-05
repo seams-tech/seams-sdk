@@ -143,6 +143,43 @@ export function consoleSecretNames(lane) {
   return unique(names, 'console secret requirements');
 }
 
+export function tenantRootManagedBackupConfig(lane, role) {
+  const prefix = {
+    a: 'DERIVER_A',
+    b: 'DERIVER_B',
+  }[role];
+  if (!prefix) throw new Error('tenant-root deriver role must be a or b');
+
+  const stem = `${prefix}_TENANT_ROOT_MANAGED_BACKUP`;
+  const common = {
+    providerIdEnvironmentName: `${stem}_PROVIDER_ID`,
+    keyVersionEnvironmentName: `${stem}_KEY_VERSION`,
+  };
+  if (lane.network === 'mainnet') {
+    return Object.freeze({
+      ...common,
+      kind: 'google_cloud_kms',
+      expectedProviderId: `google-cloud-kms-deriver-${role}-v1`,
+      credentialsSecretName: `${stem}_GOOGLE_CREDENTIALS_JSON`,
+      credentialsBindingEnvironmentName: `${stem}_GOOGLE_CREDENTIALS_JSON`,
+    });
+  }
+  return Object.freeze({
+    ...common,
+    kind: 'hpke',
+    privateSecretName: `${stem}_HPKE_PRIVATE_KEY`,
+    publicEnvironmentName: `${stem}_HPKE_PUBLIC_KEY`,
+    privateBindingEnvironmentName: `${stem}_HPKE_PRIVATE_KEY_BINDING`,
+  });
+}
+
+export function tenantRootManagedBackupSecretNames(lane, role) {
+  const config = tenantRootManagedBackupConfig(lane, role);
+  return config.kind === 'google_cloud_kms'
+    ? [config.credentialsSecretName]
+    : [config.privateSecretName];
+}
+
 function emailOtpProviderSecretNames(provider) {
   switch (provider.kind) {
     case 'resend':
@@ -174,7 +211,7 @@ export function componentSecretNames(lane, component) {
         'DERIVER_A_PEER_SIGNING_KEY',
         'DERIVER_A_ROLE_PRIVATE_D1_KEK',
         'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        ...tenantRootManagedBackupSecretNames(lane, 'a'),
         'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
       ];
     case 'deriver-b':
@@ -184,7 +221,7 @@ export function componentSecretNames(lane, component) {
         'DERIVER_B_PEER_SIGNING_KEY',
         'DERIVER_B_ROLE_PRIVATE_D1_KEK',
         'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY',
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+        ...tenantRootManagedBackupSecretNames(lane, 'b'),
         'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
       ];
     case 'router':

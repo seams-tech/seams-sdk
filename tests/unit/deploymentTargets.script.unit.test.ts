@@ -327,6 +327,18 @@ test('required secrets are derived from enabled capabilities', async () => {
   expect(module.componentSecretNames(mainnet, 'gateway')).not.toContain(
     'EMAIL_OTP_SES_ACCESS_KEY_ID',
   );
+  expect(module.componentSecretNames(mainnet, 'deriver-a')).toContain(
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON',
+  );
+  expect(module.componentSecretNames(mainnet, 'deriver-a')).not.toContain(
+    'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+  );
+  expect(module.componentSecretNames(mainnet, 'deriver-b')).toContain(
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON',
+  );
+  expect(module.componentSecretNames(mainnet, 'deriver-b')).not.toContain(
+    'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
+  );
 
   const productionTestnet = targets.backendLanes['production-testnet'];
   expect(productionTestnet.emailOtpDelivery.kind).toBe('provider_and_demo_code');

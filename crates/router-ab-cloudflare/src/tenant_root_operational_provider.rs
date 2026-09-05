@@ -13,6 +13,8 @@ use threshold_prf::SigningRootShareWire;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::hpke::CloudflareHpkeGetrandomRngV1;
+#[cfg(feature = "workers-rs")]
+use crate::tenant_root_google_kms::CloudflareTenantRootGoogleKmsBackupProviderV1;
 use crate::tenant_root_role_runtime::{
     TenantRootManagedBackupProviderV1, TenantRootOnlineRoleShareProviderV1,
 };
@@ -45,10 +47,22 @@ pub(crate) struct CloudflareTenantRootOperationalRotationProviderInputsV1 {
     online_epoch_wrapping_key_ref: String,
     online_public_key_bytes: [u8; 32],
     online_secret_bytes: Zeroizing<Vec<u8>>,
-    backup_provider_id: String,
-    backup_key_version: String,
-    backup_public_key_bytes: [u8; 32],
-    backup_secret_bytes: Zeroizing<Vec<u8>>,
+    managed_backup: CloudflareTenantRootManagedBackupProviderInputsV1,
+}
+
+pub(crate) enum CloudflareTenantRootManagedBackupProviderInputsV1 {
+    CloudflareHpke {
+        provider_id: String,
+        key_version: String,
+        public_key_bytes: [u8; 32],
+        secret_bytes: Zeroizing<Vec<u8>>,
+    },
+    #[cfg(feature = "workers-rs")]
+    GoogleCloudKms {
+        provider_id: String,
+        key_version: String,
+        credentials_json: Zeroizing<Vec<u8>>,
+    },
 }
 
 impl core::fmt::Debug for CloudflareTenantRootOperationalRotationProviderInputsV1 {
@@ -61,10 +75,7 @@ impl core::fmt::Debug for CloudflareTenantRootOperationalRotationProviderInputsV
             )
             .field("online_public_key_bytes", &"[redacted]")
             .field("online_secret_bytes", &"[redacted]")
-            .field("backup_provider_id", &self.backup_provider_id)
-            .field("backup_key_version", &self.backup_key_version)
-            .field("backup_public_key_bytes", &"[redacted]")
-            .field("backup_secret_bytes", &"[redacted]")
+            .field("managed_backup", &"[configured]")
             .finish()
     }
 }
@@ -87,10 +98,28 @@ impl CloudflareTenantRootOperationalRotationProviderInputsV1 {
             online_epoch_wrapping_key_ref: online_epoch_wrapping_key_ref.into(),
             online_public_key_bytes,
             online_secret_bytes,
-            backup_provider_id: backup_provider_id.into(),
-            backup_key_version: backup_key_version.into(),
-            backup_public_key_bytes,
-            backup_secret_bytes,
+            managed_backup: CloudflareTenantRootManagedBackupProviderInputsV1::CloudflareHpke {
+                provider_id: backup_provider_id.into(),
+                key_version: backup_key_version.into(),
+                public_key_bytes: backup_public_key_bytes,
+                secret_bytes: backup_secret_bytes,
+            },
+        }
+    }
+
+    pub(crate) fn new_with_managed_backup(
+        role: threshold_prf::TwoPartyDeriverRole,
+        online_epoch_wrapping_key_ref: impl Into<String>,
+        online_public_key_bytes: [u8; 32],
+        online_secret_bytes: Zeroizing<Vec<u8>>,
+        managed_backup: CloudflareTenantRootManagedBackupProviderInputsV1,
+    ) -> Self {
+        Self {
+            role,
+            online_epoch_wrapping_key_ref: online_epoch_wrapping_key_ref.into(),
+            online_public_key_bytes,
+            online_secret_bytes,
+            managed_backup,
         }
     }
 }
@@ -102,9 +131,17 @@ pub(crate) struct CloudflareTenantRootOperationalRotationProviderV1 {
     backup_provider_id: String,
     backup_key_version: String,
     online_public_key: OperationalHpkePublicKeyV1,
-    backup_public_key: OperationalHpkePublicKeyV1,
     online_private_key: OperationalHpkeSecretKeyV1,
-    backup_private_key: OperationalHpkeSecretKeyV1,
+    managed_backup: TenantRootManagedBackupProviderStateV1,
+}
+
+enum TenantRootManagedBackupProviderStateV1 {
+    CloudflareHpke {
+        public_key: OperationalHpkePublicKeyV1,
+        private_key: OperationalHpkeSecretKeyV1,
+    },
+    #[cfg(feature = "workers-rs")]
+    GoogleCloudKms(CloudflareTenantRootGoogleKmsBackupProviderV1),
 }
 
 impl CloudflareTenantRootOperationalRotationProviderV1 {
@@ -117,38 +154,54 @@ impl CloudflareTenantRootOperationalRotationProviderV1 {
             online_epoch_wrapping_key_ref,
             online_public_key_bytes,
             online_secret_bytes,
-            backup_provider_id,
-            backup_key_version,
-            backup_public_key_bytes,
-            backup_secret_bytes,
+            managed_backup,
         } = inputs;
-        Self::new(
-            role,
-            online_epoch_wrapping_key_ref,
-            online_public_key_bytes,
-            online_secret_bytes,
-            backup_provider_id,
-            backup_key_version,
-            backup_public_key_bytes,
-            backup_secret_bytes,
-        )
-    }
-
-    /// Creates a role-local provider after validating both HPKE key pairs.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        role: threshold_prf::TwoPartyDeriverRole,
-        online_epoch_wrapping_key_ref: impl Into<String>,
-        online_public_key_bytes: impl AsRef<[u8]>,
-        online_secret_bytes: Zeroizing<Vec<u8>>,
-        backup_provider_id: impl Into<String>,
-        backup_key_version: impl Into<String>,
-        backup_public_key_bytes: impl AsRef<[u8]>,
-        backup_secret_bytes: Zeroizing<Vec<u8>>,
-    ) -> RouterAbDerivationResult<Self> {
-        let online_epoch_wrapping_key_ref = online_epoch_wrapping_key_ref.into();
-        let backup_provider_id = backup_provider_id.into();
-        let backup_key_version = backup_key_version.into();
+        let online_epoch_wrapping_key_ref = online_epoch_wrapping_key_ref;
+        let online_public_key = parse_public_key(&online_public_key_bytes)?;
+        let online_private_key = parse_secret_key(online_secret_bytes)?;
+        verify_key_pair(&online_public_key, &online_private_key)?;
+        let (backup_provider_id, backup_key_version, managed_backup) = match managed_backup {
+            CloudflareTenantRootManagedBackupProviderInputsV1::CloudflareHpke {
+                provider_id,
+                key_version,
+                public_key_bytes,
+                secret_bytes,
+            } => {
+                let public_key = parse_public_key(&public_key_bytes)?;
+                let private_key = parse_secret_key(secret_bytes)?;
+                verify_key_pair(&public_key, &private_key)?;
+                if online_public_key_bytes == public_key_bytes {
+                    return Err(malformed(
+                        "tenant-root operational provider key material must be distinct",
+                    ));
+                }
+                (
+                    provider_id,
+                    key_version,
+                    TenantRootManagedBackupProviderStateV1::CloudflareHpke {
+                        public_key,
+                        private_key,
+                    },
+                )
+            }
+            #[cfg(feature = "workers-rs")]
+            CloudflareTenantRootManagedBackupProviderInputsV1::GoogleCloudKms {
+                provider_id,
+                key_version,
+                credentials_json,
+            } => (
+                provider_id.clone(),
+                key_version.clone(),
+                TenantRootManagedBackupProviderStateV1::GoogleCloudKms(
+                    CloudflareTenantRootGoogleKmsBackupProviderV1::new(
+                        role,
+                        provider_id,
+                        key_version,
+                        credentials_json,
+                    )?,
+                ),
+            ),
+        };
         require_descriptor(
             "tenant-root online epoch wrapping-key reference",
             &online_epoch_wrapping_key_ref,
@@ -169,31 +222,45 @@ impl CloudflareTenantRootOperationalRotationProviderV1 {
                 "tenant-root operational provider key descriptors must be distinct",
             ));
         }
-
-        let online_public_key = parse_public_key(online_public_key_bytes.as_ref())?;
-        let backup_public_key = parse_public_key(backup_public_key_bytes.as_ref())?;
-        let online_private_key = parse_secret_key(online_secret_bytes)?;
-        let backup_private_key = parse_secret_key(backup_secret_bytes)?;
-        verify_key_pair(&online_public_key, &online_private_key)?;
-        verify_key_pair(&backup_public_key, &backup_private_key)?;
-        if OperationalHpkeKemV1::pk_to_bytes(&online_public_key)
-            == OperationalHpkeKemV1::pk_to_bytes(&backup_public_key)
-        {
-            return Err(malformed(
-                "tenant-root operational provider key material must be distinct",
-            ));
-        }
-
         Ok(Self {
             role,
             online_epoch_wrapping_key_ref,
             backup_provider_id,
             backup_key_version,
             online_public_key,
-            backup_public_key,
             online_private_key,
-            backup_private_key,
+            managed_backup,
         })
+    }
+
+    /// Creates a role-local provider after validating both HPKE key pairs.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        role: threshold_prf::TwoPartyDeriverRole,
+        online_epoch_wrapping_key_ref: impl Into<String>,
+        online_public_key_bytes: impl AsRef<[u8]>,
+        online_secret_bytes: Zeroizing<Vec<u8>>,
+        backup_provider_id: impl Into<String>,
+        backup_key_version: impl Into<String>,
+        backup_public_key_bytes: impl AsRef<[u8]>,
+        backup_secret_bytes: Zeroizing<Vec<u8>>,
+    ) -> RouterAbDerivationResult<Self> {
+        Self::from_inputs(
+            CloudflareTenantRootOperationalRotationProviderInputsV1::new(
+                role,
+                online_epoch_wrapping_key_ref,
+                online_public_key_bytes.as_ref().try_into().map_err(|_| {
+                    malformed("tenant-root operational provider public key must be 32 bytes")
+                })?,
+                online_secret_bytes,
+                backup_provider_id,
+                backup_key_version,
+                backup_public_key_bytes.as_ref().try_into().map_err(|_| {
+                    malformed("tenant-root operational provider public key must be 32 bytes")
+                })?,
+                backup_secret_bytes,
+            ),
+        )
     }
 }
 
@@ -237,38 +304,49 @@ impl TenantRootOnlineRoleShareProviderV1 for CloudflareTenantRootOperationalRota
 }
 
 impl TenantRootManagedBackupProviderV1 for CloudflareTenantRootOperationalRotationProviderV1 {
-    fn seal_managed_backup(
+    async fn seal_managed_backup(
         &mut self,
         request: &TenantRootManagedBackupSealRequestV1,
     ) -> RouterAbDerivationResult<Vec<u8>> {
         require_backup_request(self, request)?;
         let aad = request.aad()?;
         let plaintext = Zeroizing::new(request.plaintext_share().to_vec());
-        seal_payload(
-            &self.backup_public_key,
-            BACKUP_INFO_V1,
-            &aad,
-            plaintext.as_slice(),
-        )
+        match &mut self.managed_backup {
+            TenantRootManagedBackupProviderStateV1::CloudflareHpke { public_key, .. } => {
+                seal_payload(public_key, BACKUP_INFO_V1, &aad, plaintext.as_slice())
+            }
+            #[cfg(feature = "workers-rs")]
+            TenantRootManagedBackupProviderStateV1::GoogleCloudKms(provider) => {
+                provider.seal(&aad, plaintext.as_slice()).await
+            }
+        }
     }
 
-    fn open_managed_backup(
+    async fn open_managed_backup(
         &mut self,
         backup: VerifiedTenantRootManagedBackupV1,
     ) -> RouterAbDerivationResult<VerifiedTenantRootManagedBackupShareV1> {
         require_backup_artifact(self, &backup)?;
         let aad = backup.aad()?;
-        let (encapped_key, ciphertext) = split_ciphertext(backup.ciphertext())?;
-        let plaintext = Zeroizing::new(
-            OperationalHpkeSuiteV1::open_base(
-                &encapped_key,
-                &self.backup_private_key.key,
-                BACKUP_INFO_V1,
-                &aad,
-                ciphertext,
-            )
-            .map_err(|_| malformed("tenant-root managed-backup HPKE opening failed"))?,
-        );
+        let plaintext = match &mut self.managed_backup {
+            TenantRootManagedBackupProviderStateV1::CloudflareHpke { private_key, .. } => {
+                let (encapped_key, ciphertext) = split_ciphertext(backup.ciphertext())?;
+                Zeroizing::new(
+                    OperationalHpkeSuiteV1::open_base(
+                        &encapped_key,
+                        &private_key.key,
+                        BACKUP_INFO_V1,
+                        &aad,
+                        ciphertext,
+                    )
+                    .map_err(|_| malformed("tenant-root managed-backup HPKE opening failed"))?,
+                )
+            }
+            #[cfg(feature = "workers-rs")]
+            TenantRootManagedBackupProviderStateV1::GoogleCloudKms(provider) => {
+                provider.open(&aad, backup.ciphertext()).await?
+            }
+        };
         let share = MpcPrfSigningRootShareWireV1::new(plaintext.to_vec())?;
         backup.verify_opened_share(share)
     }
