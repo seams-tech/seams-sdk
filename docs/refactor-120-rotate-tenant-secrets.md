@@ -8,20 +8,30 @@ R103F compatibility reviewed: August 29, 2026
 
 Ed25519 derivation architecture revised: August 29, 2026
 
-Status: implementation in progress. Refactor 103F is complete and current
-`dev` is merged into the R120 branch. The cryptographic core, strict protocol
-types, tenant-root lifecycle, control-plane issuer, Router-owned public Durable
-Object state, role-local D1 replay/terminalization, Deriver admission and
-commitment exchange, online sealing, and authorized pending cleanup are
-implemented and tested.
+Release status updated: September 5, 2026
 
-The active implementation path is now intentionally short: persist each
-role's managed-backup artifact outside its role D1, wire creation end to end,
-switch the production ECDSA and Ed25519 derivation adapters, wire refresh and
-activation, then remove the replaced deployment-root path. Deployed benchmark,
-provider-destruction, canary, and rollout checks are release gates; they do not
-block implementation. The historical detailed ledger remains below as design
-evidence and no longer determines progress.
+Status: release preparation. The active plan has completed 24 of 26 criteria.
+The cryptographic core, tenant-root creation, production derivation, refresh,
+crash recovery, managed one-role restore, release tests, same-account benchmark,
+and staging operating path are complete. The runtime tree is on `main`.
+
+Production-testnet now runs the R120 Router, Deriver A, Deriver B, and dedicated
+tenant-root control plane. A deployed proof created a fresh tenant root, replayed
+creation exactly, refreshed epoch 1 to 2, deleted Deriver A's active epoch-2 row,
+restored it through the dual-authority managed-restore flow, and completed the
+mandatory forward refresh to epoch 3. Both role stores retained only their
+epoch-3 active rows. The control plane's `workers.dev` route was disabled again
+after the proof. GitHub's workflow-review gate blocked the supported full-lane
+deployment before job execution.
+
+Production is a destructive pre-launch reset. Its pre-R120 database state will
+be discarded, so the release has no wallet migration, ceremony drain, mixed-
+profile serving, or legacy rollback window. The remaining operating path is to
+provision distinct external A/B managed-backup wrapping authorities, remove the
+deployment-root implementation, recreate the production databases, deploy one
+R120 revision, and prove fresh ECDSA and Ed25519 registration and signing.
+The historical detailed ledger remains design evidence and does not determine
+progress.
 
 ## Outcome
 
@@ -41,17 +51,19 @@ After the new derivation profile is active, one tenant refresh:
   activation;
 - leaves normal signing available throughout the refresh.
 
-The Ed25519 candidate is acceptable only when its complete warm derivation
-ceremony adds no more than 20 ms at p95 relative to the baseline. The preface
-uses the A/B transport session already required by Yao, adds no additional
-connection or standalone readiness exchange, and never enters the
+The selected Ed25519 path passed the release limit: its complete warm
+derivation ceremony adds no more than 20 ms at p95 relative to the baseline.
+The preface uses the A/B transport session already required by Yao, adds no
+additional connection or standalone readiness exchange, and never enters the
 normal-signing path.
 
-The compact local `workerd` comparison observed a 4-5 ms preface and warm
-current-versus-candidate deltas no greater than 5.37 ms at the client boundary
-or 6 ms in Worker elapsed time. This is enough to classify the design as
-provisionally feasible. The production decision still requires the frozen
-deployed cohorts and resource gates.
+The exact release tree passed the deployed same-account comparison with 606 of
+606 successful observations and no failures. Warm p95 overhead was 0.48 ms for
+activation, 3.70 ms for export, and 7.89 ms for lane materialization. Artifact
+and wire parity passed, and both benchmark Workers were deleted after evidence
+collection. The role-targeted threshold-PRF preface is the selected Ed25519
+architecture. A cross-account run may qualify a future topology when a second
+Cloudflare account is available; it does not block R120.
 
 The scalar refresh is small and well understood. The overall refactor is
 moderate rather than trivial. Two parts carry most of the work:
@@ -144,8 +156,9 @@ remain curve-specific lifecycle operations.
 19. Compromise-healing claims require verified destruction of retired shares
     and their epoch wrapping keys.
 20. The no-client guarantee begins after the per-tenant, refresh-invariant
-    derivation profile is authoritative. Converting an existing shared-root or
-    epoch-dependent wallet population is a separate one-time cutover.
+    derivation profile is authoritative. Production has no retained pre-R120
+    wallet population: its database state is reset before launch, and every
+    production tenant begins on the R120 profile.
 21. Tenant roots are created from fresh contributory randomness. They are not
     deterministically recoverable from tenant identifiers, deployment secrets,
     wallet records, or control-plane state.
@@ -198,10 +211,9 @@ remain curve-specific lifecycle operations.
     destroys both online and managed-backup key versions, deletes service-held
     tenant recovery ciphertext, and retains only redacted public audit evidence.
     Tenant-held recovery copies remain outside service control.
-37. The launch cutover regenerates every test, staging, or unreleased root and
-    all material derived through the retired profile. Any externally relied-on
-    wallet identity blocks this cutover and requires its own explicit migration;
-    production keeps no dual profile.
+37. Test, staging, and unreleased roots may be regenerated. Production is
+    pre-launch and uses a destructive database reset, so no pre-R120 production
+    wallet identity is preserved or migrated. Production serves only R120.
 38. One unavailable Deriver makes new derivation ceremonies unavailable for
     that tenant. Normal signing with already-active material continues. The
     service never substitutes a weaker one-role derivation path.
@@ -236,29 +248,23 @@ remain curve-specific lifecycle operations.
     unless the host/iframe message shape itself changes. R103F's frozen Router
     A/B `reusable_wallet_session`, ECDSA export-share authorization, and
     `consume_reusable_wallet_session` discriminators remain unchanged.
-44. Refactor 120 production activation begins only after R103F completes R5 and
-    every serving Wallet Session worker is exact-only. New derivation
-    ceremonies are fenced and every pre-cutover derivation session reaches a
-    terminal state before the first participating runtime changes. The R120
-    Gateway, Router, Deriver, WASM, SDK, and iframe revisions are then verified
-    before derivation resumes. Production never serves both derivation profiles.
-45. The cutover drains or retires every server-side registration or recovery
-    state that could still commit retired-profile derived material. An R103F
-    credential-free committed registration receipt already denotes an existing
-    wallet identity even when browser publication is incomplete; it enters the
-    decision-37 identity inventory. Delayed replay cannot make an identity that
-    the inventory retired active or usable after cutover.
-46. The role-targeted threshold-PRF preface is the preferred Ed25519 architecture
-    and remains a preparation-phase candidate until its production-shaped
-    benchmark passes. A joined-root Yao circuit is unapproved work. A failed
-    candidate gate stops Refactor 120 and requires an explicit plan amendment;
-    production never implements or serves both designs.
-47. The Ed25519 latency candidate uses no persistent PRF-output cache. It must
-    pass with one simultaneous bidirectional A/B proof-bundle flight over the
-    transport session already used by Yao, no additional connection or
-    preface-only readiness exchange, zero additional client-to-service round
-    trips, and no more than 20 ms added warm p95 end-to-end latency in any
-    measured derivation-ceremony cohort.
+44. Refactor 120 production activation begins after R103F R5 and after the
+    production databases are recreated empty. The R120 Gateway, Router,
+    Derivers, control plane, WASM, SDK, and iframe deploy as one release.
+    Fresh ECDSA and Ed25519 canaries verify that release before public launch.
+    There are no retained sessions to fence or drain.
+45. The destructive reset removes every server-side registration, recovery,
+    delayed replay, signing-material, and tenant-root record from the retired
+    profile. Production accepts no old-profile record, receipt, or wallet
+    identity after the reset.
+46. The role-targeted threshold-PRF preface is the selected Ed25519
+    architecture. The exact release tree passed its production-shaped
+    same-account benchmark. A joined-root Yao circuit remains outside R120.
+47. The selected Ed25519 path uses no persistent PRF-output cache. It uses one
+    simultaneous bidirectional A/B proof-bundle flight over the transport
+    session already required by Yao, adds no connection or preface-only
+    readiness exchange, adds zero client-to-service round trips, and passed the
+    20 ms warm-p95 release limit in every measured ceremony cohort.
 48. One dedicated internal tenant-root control-plane Worker owns the routine
     R120 issuer signing key. The Router, Deriver A, Deriver B, SigningWorker,
     Durable Object storage, D1, tenant backups, and clients never receive that
@@ -407,7 +413,7 @@ Implementation ownership is:
 | Root algebra, ECDSA custody binding, Ed25519 role-targeted threshold-PRF prototype and protocol, Deriver A/B stores and migrations, tenant-root Durable Object, KMS/HSM adapters, and refresh lifecycle | R120                                         | May proceed concurrently after the R120 preparation gate                                                                         |
 | `commonRouterUtils.ts`, threshold Ed25519/ECDSA routes, and `routerAbPrivateSigningWorker.ts`                                                                                                           | R103F until its Phase 2 exit; R120 afterward | Freeze R103F B4/B5, rebase once, then add the narrow tenant-root integration without compatibility wrappers                      |
 | Registration and capability persistence, device-link services, shared public/session types, wallet-custody WASM fixtures, and shared test factories                                                     | R103F until its Phase 3 exit; R120 afterward | Consume R103F's final receipt, link, recovery, and browser contracts; change only an independently versioned R120 protocol shape |
-| Production rollout                                                                                                                                                                                      | R103F, then R120                             | Complete R103F R5 before the R120 derivation-profile cutover                                                                     |
+| Production rollout                                                                                                                                                                                      | R103F, then R120                             | Complete R103F R5, recreate production databases empty, deploy one R120 release, and verify fresh canaries before launch          |
 
 R103F's request and persistence bridges remain scoped to Wallet Session drain.
 They never translate a Refactor 120 root identity, epoch, protocol message, or
@@ -606,6 +612,16 @@ rotating one shared Worker secret is insufficient evidence for
 `managed_healing_v1`. Provider selection remains a deployment qualification;
 the protocol depends only on versioned create, encrypt/decrypt, destroy, and
 destruction-probe operations with role-separated credentials.
+
+Staging and production-testnet currently qualify only for
+`operational_rotation_v1`. They use separate A/B R2 buckets and separate A/B
+HPKE keys, while the backup private keys remain role-local Worker Secrets. Those
+deployments prove availability, restore, and forward refresh and make no
+cryptographic-erasure claim. Production requires distinct A/B wrapping-key
+authorities outside Cloudflare. R2 receives ciphertext only; each authority is
+restricted to its role and restore authorization. A provider with verifiable
+version destruction may qualify `managed_healing_v1`; otherwise production
+retains the explicit `cryptographic_erasure_unverified` limitation.
 
 ## Security Goal
 
@@ -1080,9 +1096,10 @@ fence fails closed. The checkpoint fence advances only through its
 open -> reserved -> executed states; terminal activation transitions remain
 owned by the lifecycle activation path.
 
-This public checkpoint slice contains no secret shares and deliberately has no
-activation or cutover consumer. Public routes, production transport, live
-two-role orchestration, and crash/restart coordination remain release gates.
+This public checkpoint contains no secret shares. The private control-plane and
+Deriver transports consume it for live two-role orchestration and crash/restart
+recovery. Production launch remains gated on the external A/B wrapping
+authorities and fresh post-reset canaries.
 
 ## Stable Derivation Boundary
 
@@ -1228,18 +1245,18 @@ string at any boundary.
 
 The required equivalence is between any two valid A/B sharings of the same K
 under this role-targeted profile. It is separate from the retired
-deployment-share-hash profile. Pre-launch cutover regenerates its unreleased
-outputs.
+deployment-share-hash profile. The pre-launch database reset discards every
+unreleased output from that profile.
 
 The outer Ed25519 derivation protocol, target-specific payloads, pair-session
 identity, vectors, and generated server bindings change. The Yao circuit
 manifest, circuit digest, schedule, table bytes, input/output schemas, and
-circuit-cache identity remain byte-identical. Any prototype result requiring a
-circuit change stops the candidate and requires this plan to be amended.
+circuit-cache identity remain byte-identical. The selected release satisfies
+that constraint.
 
-Production must use one authoritative profile. If existing production wallets
-depend on the role-local hashing profile, rollout requires one explicit
-pre-cutover migration. The implementation retains no dual derivation path.
+Production uses one authoritative profile. Its databases are recreated empty
+before launch, so every production wallet starts on R120 and no profile
+migration or dual derivation path exists.
 
 ### Ed25519 architecture-selection latency prototype
 
@@ -1250,12 +1267,11 @@ figures measure local cryptography. They do not measure the role-separated A/B
 exchange, Worker scheduling, encryption, or composition with Yao. See the
 [threshold-PRF benchmark record](../crates/threshold-prf/docs/benchmarks.md).
 
-Preparation therefore builds one benchmark-only role-targeted PRF preface in
-the existing `ed25519-yao-cloudflare-bench` harness before production protocol
-work begins. The 10 ms limit applies to the complete current-versus-candidate
-warm p95 ceremony delta, including cryptography, encryption, Worker scheduling,
-and A/B transport. It is an absolute rejection ceiling for every measured
-topology and ceremony. The prototype:
+The release benchmark uses the role-targeted PRF preface in the existing
+`ed25519-yao-cloudflare-bench` harness. The 20 ms limit applies to the complete
+current-versus-candidate warm p95 ceremony delta, including cryptography,
+encryption, Worker scheduling, and A/B transport. It is an absolute rejection
+ceiling for every measured topology and ceremony. The selected path:
 
 - runs the A-target and B-target directions simultaneously;
 - sends exactly one proof bundle in each direction;
@@ -1396,8 +1412,8 @@ It also causes no R103F lifecycle mutation: no
 registration completion receipt, device-link delivery or acknowledgement, V6
 browser record, hosted child credential, or host/iframe message changes.
 
-Clients may require a normal SDK release for the one-time protocol-profile
-cutover if a boundary-local Router A/B or WASM protocol changes. That release is
+Clients may require a normal SDK release for the initial protocol-profile
+launch if a boundary-local Router A/B or WASM protocol changes. That release is
 built on R103F's final SDK and V6 browser model. It does not imply an IndexedDB
 record-version or `WALLET_PROTOCOL_VERSION` change. Either version changes only
 when its own persisted or host/iframe shape changes. Every subsequent tenant
@@ -1497,8 +1513,8 @@ is unavailable; remediation uses another forward refresh. A lifecycle stuck in
 The `activation` field is the non-cloneable, issuer-verified token. The active
 state projection retains only its exact signed bytes and digest.
 
-The dormant lifecycle and role-private D1 cutover now use the exact signed
-activation receipt bytes. `TenantRootActivationReceiptProjectionV1` consumes the
+The lifecycle and role-private D1 path use the exact signed activation receipt
+bytes. `TenantRootActivationReceiptProjectionV1` consumes the
 verified receipt token and retains its canonical bytes plus digest. The
 Cloudflare role-private stores use the `tenant-root-role-private-d1/v2` schema:
 activation rows persist canonical receipt bytes (base64url at the D1 boundary),
@@ -2117,6 +2133,25 @@ This is the only execution checklist for R120. The historical ledger below is
 retained as design evidence; its unchecked rows do not block implementation or
 count toward progress.
 
+### Current release state
+
+- Active completion is 24/26 (92.3%). Foundation and Milestones 1-3 are
+  complete; Milestone 4 has four of six criteria complete.
+- Production-testnet proof `proof-1788540559100` replayed creation exactly,
+  refreshed epoch 1 to 2, restored an intentionally deleted Deriver A epoch-2
+  row, and completed the mandatory forward refresh to epoch 3. The refresh and
+  restore activation-receipt digests are
+  `3aZhG5pcK83PA63TiX3biWmmGFDuhboRMFqciz2vNFA` and
+  `XdfgloxQcH_xmzWXiZ4xEjfhvBmdJxrinAM961sjCXE`.
+- Both production-testnet role stores contain only the epoch-3 active row for
+  that proof, each at role-store revision 2. Gateway readiness, health, JWKS,
+  Ed25519 health, and ECDSA health return 200. The control plane has no public
+  `workers.dev` route.
+- Production-testnet Console secret mappings are on `main`; the full-lane run
+  `33897731751` stopped before job execution at GitHub's workflow-review gate.
+- Production activation remains blocked until distinct external A/B
+  managed-backup wrapping authorities are provisioned outside Cloudflare.
+
 ### Completed foundation
 
 - [x] Implement and verify the role-targeted threshold-PRF and proactive-share-
@@ -2218,13 +2253,18 @@ ECDSA/Ed25519 continuity path or count toward its completion.
       `router-ab-core`, `threshold-prf`, `router-ab-ed25519-yao`, Yao anti-drift,
       Router-server and unit TypeScript checks, the tenant-root Console identity
       route test, and the Ed25519-only registration/add-method intended contract.
-- [ ] Fence new ceremonies, drain pre-cutover operations, activate one revision,
-      and confirm wallets and clients require no migration or local mutation.
-- [ ] Remove obsolete deployment-root code, bindings, Secrets, migrations that
-      were never deployed, temporary allowances, dead exports, and superseded
-      tests. Preserve applied migration history and immutable evidence.
-- [ ] Update the active architecture and operations documentation, leave the
-      historical ledger unchanged, and mark R120 complete.
+- [ ] Recreate the production databases empty, deploy one exact R120 revision,
+      and prove fresh ECDSA and Ed25519 registration and signing. The destructive
+      pre-launch reset removes any need for ceremony fencing, draining, wallet
+      migration, client mutation, mixed-profile serving, or old-profile
+      rollback.
+- [ ] Before production launch, remove obsolete deployment-root code, bindings,
+      Secrets, temporary allowances, dead exports, and superseded tests. Delete
+      migrations that were never deployed and preserve applied migration
+      history in retained environments. No legacy rollback window remains.
+- [x] Update the active architecture and operations documentation and leave the
+      historical ledger unchanged. R120 is complete when the two preceding
+      runtime and cleanup criteria close.
 
 ### Execution rules
 
