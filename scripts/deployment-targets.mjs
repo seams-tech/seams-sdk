@@ -161,7 +161,7 @@ export function tenantRootManagedBackupConfig(lane, role) {
       kind: 'google_cloud_kms',
       expectedProviderId: `google-cloud-kms-deriver-${role}-v1`,
       credentialsSecretName: `${stem}_GOOGLE_CREDENTIALS_JSON`,
-      credentialsBindingEnvironmentName: `${stem}_GOOGLE_CREDENTIALS_JSON`,
+      credentialsBindingEnvironmentName: `${stem}_GOOGLE_CREDENTIALS_JSON_BINDING`,
     });
   }
   return Object.freeze({
