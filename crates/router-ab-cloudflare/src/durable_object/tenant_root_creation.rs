@@ -203,6 +203,12 @@ const TENANT_ROOT_COMMAND_TERMINAL_RECEIPT_MAX_BASE64URL_BYTES_V1: usize =
 const TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BYTES_V1: usize = 16 * 1024;
 const TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BASE64URL_BYTES_V1: usize =
     base64url_len_for_bytes(TENANT_ROOT_REFRESH_ACTIVE_RECEIPT_MAX_BYTES_V1);
+const TENANT_ROOT_MANUAL_REFRESH_INTERVAL_MS_V1: u64 = 60 * 60 * 1000;
+const TENANT_ROOT_MANUAL_REFRESH_OPERATION_MAX_BYTES_V1: usize = 256;
+const TENANT_ROOT_MANUAL_REFRESH_COMPLETION_STORAGE_PREFIX_V1: &str =
+    "refresh/v1/manual-completion/";
+pub(crate) const TENANT_ROOT_MANUAL_REFRESH_IN_PROGRESS_ERROR_V1: &str =
+    "tenant_root_refresh_in_progress";
 const TENANT_ROOT_REFRESH_ATTEMPT_CONTEXT_MAX_BYTES_V1: usize = 8 * 1024;
 const TENANT_ROOT_REFRESH_ATTEMPT_COMMAND_MAX_BYTES_V1: usize = 16 * 1024;
 const TENANT_ROOT_MANAGED_RESTORE_INCIDENT_MAX_BYTES_V1: usize = 256;
@@ -757,6 +763,39 @@ pub(crate) struct CloudflareTenantRootRefreshActivationResponseV1 {
     pub(crate) lifecycle_revision: u64,
 }
 
+/// The manual refresh gate is persisted in the same transaction as the
+/// authoritative active state. Completion records live under one keyed
+/// storage entry per operation so replay remains exact after later refreshes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootManualRefreshPendingV1 {
+    pub(crate) operation_id: String,
+    pub(crate) lifecycle_revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CloudflareTenantRootManualRefreshCompletionV1 {
+    pub(crate) operation_id: String,
+    pub(crate) completed_at_ms: u64,
+    pub(crate) response: CloudflareTenantRootRefreshActivationResponseV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum CloudflareTenantRootManualRefreshAdmissionOutcomeV1 {
+    Admitted {
+        lifecycle_revision: u64,
+    },
+    Replayed {
+        response: CloudflareTenantRootRefreshActivationResponseV1,
+    },
+    Throttled {
+        retry_at_ms: u64,
+    },
+    InProgress,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum CloudflareTenantRootCreationActiveStateReadRequestV1 {
@@ -770,6 +809,13 @@ pub(crate) enum CloudflareTenantRootCreationActiveStateReadRequestV1 {
         refresh_context_b64u: String,
         deriver_a_refresh_command_b64u: String,
         deriver_b_refresh_command_b64u: String,
+        #[serde(default)]
+        manual_operation_id: Option<String>,
+    },
+    ReserveManualRefresh {
+        identity_digest_b64u: String,
+        custody_lineage_b64u: String,
+        operation_id: String,
     },
     ReserveManagedRestore {
         identity_digest_b64u: String,
@@ -793,6 +839,9 @@ pub(crate) struct CloudflareTenantRootCreationActiveStateReadResponseV1 {
     pub(crate) lifecycle_revision: u64,
     pub(crate) fence: CloudflareTenantRootRefreshFenceV1,
     pub(crate) managed_restore_fence: CloudflareTenantRootManagedRestoreFenceV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) manual_refresh_admission:
+        Option<CloudflareTenantRootManualRefreshAdmissionOutcomeV1>,
 }
 
 /// Public installation progress from one fully validated checkpoint.
@@ -1024,6 +1073,8 @@ pub(crate) struct CloudflareTenantRootRefreshContributionResponseV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareTenantRootRefreshAttemptV1 {
+    #[serde(default)]
+    pub(crate) manual_operation_id: Option<String>,
     pub(crate) attempt_id_b64u: String,
     pub(crate) identity_digest_b64u: String,
     pub(crate) custody_lineage_b64u: String,
@@ -1154,12 +1205,6 @@ pub(crate) enum CloudflareTenantRootManagedRestoreFenceEvaluationV1 {
     },
 }
 
-#[cfg(feature = "workers-rs")]
-enum CloudflareTenantRootManagedRestoreActiveStateOperationV1 {
-    Reserve(CloudflareTenantRootManagedRestoreAuthorizationRequestV1),
-    Checkpoint(CloudflareTenantRootManagedRestoreAuthorizationCheckpointV1),
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CloudflareTenantRootRefreshActiveStateRecordV1 {
@@ -1174,6 +1219,11 @@ pub(crate) struct CloudflareTenantRootRefreshActiveStateRecordV1 {
     pub(crate) lifecycle_revision: u64,
     pub(crate) fence: CloudflareTenantRootRefreshFenceV1,
     pub(crate) managed_restore_fence: CloudflareTenantRootManagedRestoreFenceV1,
+    /// Missing fields in persisted records predate manual refresh admission.
+    #[serde(default)]
+    pub(crate) manual_refresh_pending: Option<CloudflareTenantRootManualRefreshPendingV1>,
+    #[serde(default)]
+    pub(crate) last_manual_refresh_completed_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2357,6 +2407,7 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_attempt_reserv
     refresh_context_b64u: String,
     deriver_a_refresh_command_b64u: String,
     deriver_b_refresh_command_b64u: String,
+    manual_operation_id: Option<String>,
 ) -> RouterAbProtocolResult<CloudflareVerifiedTenantRootActiveStateV1> {
     let (authority_id, _) =
         derive_tenant_root_creation_authority_object_v1(env, identity_digest, custody_lineage)?;
@@ -2366,6 +2417,7 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_attempt_reserv
         refresh_context_b64u,
         deriver_a_refresh_command_b64u,
         deriver_b_refresh_command_b64u,
+        manual_operation_id,
     };
     let response: CloudflareTenantRootCreationActiveStateReadResponseV1 =
         execute_cloudflare_router_tenant_root_creation_private_call_v1(
@@ -2387,6 +2439,43 @@ pub(crate) async fn execute_cloudflare_router_tenant_root_refresh_attempt_reserv
         custody_lineage,
         response,
     )
+}
+
+/// Atomically admits one manual refresh before command minting or role work.
+#[cfg(feature = "workers-rs")]
+pub(crate) async fn execute_cloudflare_router_tenant_root_manual_refresh_admission_call_v1(
+    env: &worker::Env,
+    identity_digest: TenantRootIdentityDigestV1,
+    custody_lineage: TenantRootCustodyLineageId,
+    operation_id: String,
+) -> RouterAbProtocolResult<CloudflareTenantRootManualRefreshAdmissionOutcomeV1> {
+    validate_manual_refresh_operation_id_v1(&operation_id)?;
+    let (authority_id, _) =
+        derive_tenant_root_creation_authority_object_v1(env, identity_digest, custody_lineage)?;
+    let request = CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManualRefresh {
+        identity_digest_b64u: encode_base64url_bytes_v1(identity_digest.as_bytes()),
+        custody_lineage_b64u: custody_lineage.to_base64url(),
+        operation_id,
+    };
+    let response: CloudflareTenantRootCreationActiveStateReadResponseV1 =
+        execute_cloudflare_router_tenant_root_creation_private_call_v1(
+            env,
+            authority_id,
+            identity_digest,
+            custody_lineage,
+            CLOUDFLARE_TENANT_ROOT_CREATION_ACTIVE_STATE_READ_PATH,
+            "tenant-root manual refresh admission",
+            &request,
+            TENANT_ROOT_CREATION_ACTIVE_STATE_READ_REQUEST_MAX_BYTES_V1,
+            TENANT_ROOT_CREATION_ACTIVE_STATE_READ_RESPONSE_MAX_BYTES_V1,
+        )
+        .await?;
+    response.manual_refresh_admission.ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "tenant-root manual refresh admission response omitted its outcome",
+        )
+    })
 }
 
 #[cfg(feature = "workers-rs")]
@@ -4293,6 +4382,7 @@ fn active_state_read_response_from_record(
         lifecycle_revision: record.lifecycle_revision,
         fence: record.fence,
         managed_restore_fence: record.managed_restore_fence,
+        manual_refresh_admission: None,
     }
 }
 
@@ -4488,81 +4578,40 @@ impl RouterAbTenantRootCreationDurableObject {
         &self,
         request: CloudflareTenantRootCreationActiveStateReadRequestV1,
     ) -> RouterAbProtocolResult<CloudflareTenantRootCreationActiveStateReadResponseV1> {
-        let (
-            identity_digest_b64u,
-            custody_lineage_b64u,
-            refresh_context_b64u,
-            deriver_a_refresh_command_b64u,
-            deriver_b_refresh_command_b64u,
-            managed_restore_operation,
-        ) = match request {
+        let (identity_digest_b64u, custody_lineage_b64u) = match &request {
             CloudflareTenantRootCreationActiveStateReadRequestV1::Read {
                 identity_digest_b64u,
                 custody_lineage_b64u,
-            } => (
+            }
+            | CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveRefresh {
                 identity_digest_b64u,
                 custody_lineage_b64u,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveRefresh {
+                ..
+            }
+            | CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManualRefresh {
                 identity_digest_b64u,
                 custody_lineage_b64u,
-                refresh_context_b64u,
-                deriver_a_refresh_command_b64u,
-                deriver_b_refresh_command_b64u,
-            } => (
+                ..
+            }
+            | CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManagedRestore {
                 identity_digest_b64u,
                 custody_lineage_b64u,
-                Some(refresh_context_b64u),
-                Some(deriver_a_refresh_command_b64u),
-                Some(deriver_b_refresh_command_b64u),
-                None,
-            ),
-            CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManagedRestore {
+                ..
+            }
+            | CloudflareTenantRootCreationActiveStateReadRequestV1::CheckpointManagedRestore {
                 identity_digest_b64u,
                 custody_lineage_b64u,
-                authorization,
-            } => (
-                identity_digest_b64u,
-                custody_lineage_b64u,
-                None,
-                None,
-                None,
-                Some(
-                    CloudflareTenantRootManagedRestoreActiveStateOperationV1::Reserve(
-                        authorization,
-                    ),
-                ),
-            ),
-            CloudflareTenantRootCreationActiveStateReadRequestV1::CheckpointManagedRestore {
-                identity_digest_b64u,
-                custody_lineage_b64u,
-                checkpoint,
-            } => (
-                identity_digest_b64u,
-                custody_lineage_b64u,
-                None,
-                None,
-                None,
-                Some(
-                    CloudflareTenantRootManagedRestoreActiveStateOperationV1::Checkpoint(
-                        checkpoint,
-                    ),
-                ),
-            ),
+                ..
+            } => (identity_digest_b64u, custody_lineage_b64u),
         };
         let identity_digest = TenantRootIdentityDigestV1::from_bytes(decode_fixed_base64url_32(
             "tenant-root active-state read identity digest",
-            &identity_digest_b64u,
+            identity_digest_b64u,
         )?);
         let custody_lineage = decode_lineage_b64u(
             "tenant-root active-state read custody lineage",
-            &custody_lineage_b64u,
+            custody_lineage_b64u,
         )?;
-        let _authority_id = authority_id_from_object_id(&self.authority_object_id)?;
         require_tenant_root_creation_authority_object_v1(
             &self.env,
             &self.authority_object_id,
@@ -4576,53 +4625,69 @@ impl RouterAbTenantRootCreationDurableObject {
                 "tenant-root active state does not match the requested identity and custody lineage",
             ));
         }
-        if let (
-            Some(refresh_context_b64u),
-            Some(deriver_a_refresh_command_b64u),
-            Some(deriver_b_refresh_command_b64u),
-        ) = (
-            refresh_context_b64u,
-            deriver_a_refresh_command_b64u,
-            deriver_b_refresh_command_b64u,
-        ) {
-            return self
-                .reserve_refresh_attempt(
+        match request {
+            CloudflareTenantRootCreationActiveStateReadRequestV1::Read { .. } => {
+                Ok(active_state_read_response_from_record(active.record))
+            }
+            CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManualRefresh {
+                operation_id,
+                ..
+            } => {
+                let admission = self
+                    .reserve_manual_refresh_admission(
+                        &active,
+                        identity_digest,
+                        custody_lineage,
+                        operation_id,
+                    )
+                    .await?;
+                let mut response = active_state_read_response_from_record(active.record);
+                response.manual_refresh_admission = Some(admission);
+                Ok(response)
+            }
+            CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveRefresh {
+                refresh_context_b64u,
+                deriver_a_refresh_command_b64u,
+                deriver_b_refresh_command_b64u,
+                manual_operation_id,
+                ..
+            } => {
+                self.reserve_refresh_attempt(
                     active,
                     identity_digest,
                     custody_lineage,
                     refresh_context_b64u,
                     deriver_a_refresh_command_b64u,
                     deriver_b_refresh_command_b64u,
+                    manual_operation_id,
                 )
-                .await;
-        }
-        if let Some(operation) = managed_restore_operation {
-            return match operation {
-                CloudflareTenantRootManagedRestoreActiveStateOperationV1::Reserve(
+                .await
+            }
+            CloudflareTenantRootCreationActiveStateReadRequestV1::ReserveManagedRestore {
+                authorization,
+                ..
+            } => {
+                self.reserve_managed_restore_authorization(
+                    active,
+                    identity_digest,
+                    custody_lineage,
                     authorization,
-                ) => {
-                    self.reserve_managed_restore_authorization(
-                        active,
-                        identity_digest,
-                        custody_lineage,
-                        authorization,
-                    )
-                    .await
-                }
-                CloudflareTenantRootManagedRestoreActiveStateOperationV1::Checkpoint(
+                )
+                .await
+            }
+            CloudflareTenantRootCreationActiveStateReadRequestV1::CheckpointManagedRestore {
+                checkpoint,
+                ..
+            } => {
+                self.checkpoint_managed_restore_authorization(
+                    active,
+                    identity_digest,
+                    custody_lineage,
                     checkpoint,
-                ) => {
-                    self.checkpoint_managed_restore_authorization(
-                        active,
-                        identity_digest,
-                        custody_lineage,
-                        checkpoint,
-                    )
-                    .await
-                }
-            };
+                )
+                .await
+            }
         }
-        Ok(active_state_read_response_from_record(active.record))
     }
 
     async fn reserve_managed_restore_authorization(
@@ -4940,6 +5005,155 @@ impl RouterAbTenantRootCreationDurableObject {
         outcome
     }
 
+    async fn reserve_manual_refresh_admission(
+        &self,
+        loaded_active: &ValidatedTenantRootRefreshActiveStateV1,
+        identity_digest: TenantRootIdentityDigestV1,
+        custody_lineage: TenantRootCustodyLineageId,
+        operation_id: String,
+    ) -> RouterAbProtocolResult<CloudflareTenantRootManualRefreshAdmissionOutcomeV1> {
+        validate_manual_refresh_operation_id_v1(&operation_id)?;
+        let issuer_keys_json = read_required_worker_var(
+            &self.env,
+            crate::TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON_ENV,
+        )?;
+        let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
+        let authority_id = authority_id_from_object_id(&self.authority_object_id)?;
+        let now_ms = crate::cloudflare_now_unix_ms_v1()?;
+        let completion_key = manual_refresh_completion_storage_key_v1(&operation_id);
+        let outcome: Rc<
+            RefCell<
+                Option<RouterAbProtocolResult<CloudflareTenantRootManualRefreshAdmissionOutcomeV1>>,
+            >,
+        > = Rc::new(RefCell::new(None));
+        let outcome_for_transaction = Rc::clone(&outcome);
+        let active_identity = loaded_active.identity_digest;
+        let active_lineage = loaded_active.custody_lineage;
+        self.storage
+            .transaction(move |transaction| async move {
+                let active_record = match transaction_get_optional::<
+                    CloudflareTenantRootRefreshActiveStateRecordV1,
+                >(
+                    &transaction,
+                    TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1,
+                )
+                .await
+                {
+                    Ok(Some(record)) => record,
+                    Ok(None) => {
+                        outcome_for_transaction.replace(Some(Err(
+                            RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                                "tenant-root manual refresh admission has no authoritative active public state",
+                            ),
+                        )));
+                        return Ok(());
+                    }
+                    Err(error) => return Err(error),
+                };
+                let active = match validate_refresh_active_state_record(
+                    active_record,
+                    authority_id,
+                    &issuer_keys,
+                ) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        outcome_for_transaction
+                            .replace(Some(Err(stored_refresh_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                if active.identity_digest != active_identity
+                    || active.custody_lineage != active_lineage
+                    || active.identity_digest != identity_digest
+                    || active.custody_lineage != custody_lineage
+                {
+                    outcome_for_transaction.replace(Some(Err(
+                        RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                            "tenant-root manual refresh admission identity changed",
+                        ),
+                    )));
+                    return Ok(());
+                }
+
+                let completion = match transaction_get_optional::<
+                    CloudflareTenantRootManualRefreshCompletionV1,
+                >(&transaction, &completion_key)
+                .await
+                {
+                    Ok(completion) => completion,
+                    Err(error) => return Err(error),
+                };
+                let evaluation = match evaluate_manual_refresh_admission_v1(
+                    &active.record,
+                    completion,
+                    &operation_id,
+                    now_ms,
+                ) {
+                    Ok(evaluation) => evaluation,
+                    Err(error) => {
+                        outcome_for_transaction
+                            .replace(Some(Err(stored_refresh_record_error(error))));
+                        return Ok(());
+                    }
+                };
+                match evaluation {
+                    CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { pending } => {
+                        let mut candidate = active.record.clone();
+                        candidate.manual_refresh_pending = Some(pending);
+                        if let Err(error) = validate_refresh_active_state_record(
+                            candidate.clone(),
+                            authority_id,
+                            &issuer_keys,
+                        ) {
+                            outcome_for_transaction.replace(Some(Err(error)));
+                            return Ok(());
+                        }
+                        transaction
+                            .put(TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1, &candidate)
+                            .await?;
+                        outcome_for_transaction.replace(Some(Ok(
+                            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Admitted {
+                                lifecycle_revision: candidate.lifecycle_revision,
+                            },
+                        )));
+                    }
+                    CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Replay { response } => {
+                        outcome_for_transaction.replace(Some(Ok(
+                            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Replayed {
+                                response,
+                            },
+                        )));
+                    }
+                    CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Throttled {
+                        retry_at_ms,
+                    } => {
+                        outcome_for_transaction.replace(Some(Ok(
+                            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Throttled {
+                                retry_at_ms,
+                            },
+                        )));
+                    }
+                    CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress => {
+                        outcome_for_transaction.replace(Some(Ok(
+                            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::InProgress,
+                        )));
+                    }
+                }
+                Ok(())
+            })
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        let result = outcome.borrow_mut().take().ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root manual refresh admission transaction did not produce an outcome",
+            )
+        })?;
+        result
+    }
+
     async fn reserve_refresh_attempt(
         &self,
         loaded_active: ValidatedTenantRootRefreshActiveStateV1,
@@ -4948,7 +5162,11 @@ impl RouterAbTenantRootCreationDurableObject {
         refresh_context_b64u: String,
         deriver_a_refresh_command_b64u: String,
         deriver_b_refresh_command_b64u: String,
+        manual_operation_id: Option<String>,
     ) -> RouterAbProtocolResult<CloudflareTenantRootCreationActiveStateReadResponseV1> {
+        if let Some(operation_id) = &manual_operation_id {
+            validate_manual_refresh_operation_id_v1(operation_id)?;
+        }
         let context_bytes = decode_canonical_base64url(
             "tenant-root refresh reservation context",
             &refresh_context_b64u,
@@ -4974,6 +5192,7 @@ impl RouterAbTenantRootCreationDurableObject {
         let outcome_for_transaction = Rc::clone(&outcome);
         let active_identity = loaded_active.identity_digest;
         let active_lineage = loaded_active.custody_lineage;
+        let requested_manual_operation_id = manual_operation_id.clone();
         self.storage
             .transaction(move |transaction| async move {
                 let active_record = match transaction_get_optional::<
@@ -5045,14 +5264,41 @@ impl RouterAbTenantRootCreationDurableObject {
                         return Ok(());
                     }
                 };
-                let attempt = match refresh_attempt_from_commands(&context, &command_a, &command_b)
-                {
-                    Ok(value) => value,
-                    Err(error) => {
-                        outcome_for_transaction.replace(Some(Err(error)));
+                let mut attempt =
+                    match refresh_attempt_from_commands(&context, &command_a, &command_b) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            outcome_for_transaction.replace(Some(Err(error)));
+                            return Ok(());
+                        }
+                    };
+                attempt.manual_operation_id = requested_manual_operation_id.clone();
+                if let Some(operation_id) = &requested_manual_operation_id {
+                    match &active.record.manual_refresh_pending {
+                        Some(pending)
+                            if pending.operation_id == *operation_id
+                                && pending.lifecycle_revision
+                                    == active.record.lifecycle_revision => {}
+                        _ => {
+                            outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                                RouterAbProtocolErrorCode::ConflictingPair,
+                                "tenant-root manual refresh reservation is not admitted",
+                            ))));
+                            return Ok(());
+                        }
+                    }
+                    if matches!(
+                        &active.record.managed_restore_fence,
+                        CloudflareTenantRootManagedRestoreFenceV1::Reserved { .. }
+                    ) {
+                        outcome_for_transaction
+                            .replace(Some(Err(manual_refresh_in_progress_error())));
                         return Ok(());
                     }
-                };
+                } else if active.record.manual_refresh_pending.is_some() {
+                    outcome_for_transaction.replace(Some(Err(manual_refresh_in_progress_error())));
+                    return Ok(());
+                }
                 if let Err(error) = require_fresh_refresh_command(&command_a, &context, now_ms)
                     .and_then(|_| require_fresh_refresh_command(&command_b, &context, now_ms))
                 {
@@ -5072,6 +5318,11 @@ impl RouterAbTenantRootCreationDurableObject {
                     | CloudflareTenantRootRefreshFenceV1::Executed { attempt: stored } => {
                         if let Err(error) = validate_refresh_attempt_packages(stored) {
                             outcome_for_transaction.replace(Some(Err(error)));
+                            return Ok(());
+                        }
+                        if stored.manual_operation_id != requested_manual_operation_id {
+                            outcome_for_transaction
+                                .replace(Some(Err(manual_refresh_in_progress_error())));
                             return Ok(());
                         }
                         active.record.clone()
@@ -5118,6 +5369,7 @@ impl RouterAbTenantRootCreationDurableObject {
                         lifecycle_revision,
                         fence,
                         managed_restore_fence,
+                        manual_refresh_admission: None,
                     },
                 };
                 outcome_for_transaction.replace(Some(Ok(response)));
@@ -5869,6 +6121,7 @@ impl RouterAbTenantRootCreationDurableObject {
         authority_id: TenantRootControlPlaneAuthorityIdV1,
         issuer_keys: &BTreeMap<String, [u8; 32]>,
         role_keys: &TenantRootCreationRoleVerifyingKeysV1,
+        now_ms: u64,
     ) -> RouterAbProtocolResult<()> {
         let existing_record = transaction_get_optional::<
             CloudflareTenantRootRefreshActiveStateRecordV1,
@@ -5907,6 +6160,13 @@ impl RouterAbTenantRootCreationDurableObject {
                 ));
             }
         };
+        let manual_operation_id = attempt.manual_operation_id.clone();
+        apply_manual_refresh_completion_transition_v1(
+            &existing.record,
+            &mut candidate,
+            manual_operation_id.as_deref(),
+            now_ms,
+        )?;
         candidate.fence = CloudflareTenantRootRefreshFenceV1::Terminal {
             attempt,
             outcome: CloudflareTenantRootRefreshTerminalOutcomeV1::Completed,
@@ -6040,6 +6300,19 @@ impl RouterAbTenantRootCreationDurableObject {
             .put(TENANT_ROOT_REFRESH_ACTIVE_STATE_STORAGE_KEY_V1, &candidate)
             .await
             .map_err(durable_storage_protocol_error)?;
+        if let Some(operation_id) = manual_operation_id {
+            let completion = CloudflareTenantRootManualRefreshCompletionV1 {
+                operation_id: operation_id.clone(),
+                completed_at_ms: now_ms,
+                response: refresh_terminal_response_from_record(&candidate),
+            };
+            validate_manual_refresh_completion_v1(&completion)?;
+            let completion_key = manual_refresh_completion_storage_key_v1(&operation_id);
+            transaction
+                .put(&completion_key, &completion)
+                .await
+                .map_err(durable_storage_protocol_error)?;
+        }
         transaction
             .delete(TENANT_ROOT_REFRESH_COMMITMENT_CHECKPOINT_STORAGE_KEY_V1)
             .await
@@ -6096,6 +6369,7 @@ impl RouterAbTenantRootCreationDurableObject {
         )?;
         let issuer_keys = crate::env::decode_issuer_verifying_keys(&issuer_keys_json)?;
         let role_keys = read_tenant_root_creation_role_verifying_keys(&self.env)?;
+        let now_ms = crate::cloudflare_now_unix_ms_v1()?;
         let candidate = refresh_active_state_record_from_verified_receipt(
             activation_receipt,
             lifecycle_revision,
@@ -6110,6 +6384,7 @@ impl RouterAbTenantRootCreationDurableObject {
                     authority_id,
                     &issuer_keys,
                     &role_keys,
+                    now_ms,
                 )
                 .await;
                 outcome_for_transaction.replace(Some(result));
@@ -7185,6 +7460,184 @@ fn malformed_input(message: impl Into<String>) -> RouterAbProtocolError {
     RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
 }
 
+pub(crate) fn validate_manual_refresh_operation_id_v1(
+    operation_id: &str,
+) -> RouterAbProtocolResult<()> {
+    if operation_id.is_empty()
+        || operation_id.len() > TENANT_ROOT_MANUAL_REFRESH_OPERATION_MAX_BYTES_V1
+        || operation_id.trim() != operation_id
+        || operation_id.chars().any(char::is_control)
+    {
+        return Err(malformed_input(
+            "tenant-root manual refresh operation_id must be non-empty, at most 256 UTF-8 bytes, and free of outer whitespace and control characters",
+        ));
+    }
+    Ok(())
+}
+
+fn manual_refresh_completion_storage_key_v1(operation_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"tenant-root-manual-refresh-completion-v1");
+    hasher.update((operation_id.len() as u32).to_be_bytes());
+    hasher.update(operation_id.as_bytes());
+    format!(
+        "{TENANT_ROOT_MANUAL_REFRESH_COMPLETION_STORAGE_PREFIX_V1}{}",
+        encode_base64url_bytes_v1(&hasher.finalize())
+    )
+}
+
+fn manual_refresh_in_progress_error() -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::ConflictingPair,
+        TENANT_ROOT_MANUAL_REFRESH_IN_PROGRESS_ERROR_V1,
+    )
+}
+
+fn validate_manual_refresh_pending_v1(
+    pending: &CloudflareTenantRootManualRefreshPendingV1,
+) -> RouterAbProtocolResult<()> {
+    validate_manual_refresh_operation_id_v1(&pending.operation_id)?;
+    if pending.lifecycle_revision == 0 {
+        return Err(malformed_input(
+            "tenant-root manual refresh pending lifecycle revision must be positive",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_manual_refresh_completion_v1(
+    completion: &CloudflareTenantRootManualRefreshCompletionV1,
+) -> RouterAbProtocolResult<()> {
+    validate_manual_refresh_operation_id_v1(&completion.operation_id)?;
+    if completion.completed_at_ms == 0 || completion.response.lifecycle_revision == 0 {
+        return Err(malformed_input(
+            "tenant-root manual refresh completion has invalid time or lifecycle revision",
+        ));
+    }
+    decode_lifecycle_receipt_digest(
+        "tenant-root manual refresh completion receipt digest",
+        &completion.response.activation_receipt_digest_b64u,
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CloudflareTenantRootManualRefreshAdmissionEvaluationV1 {
+    Commit {
+        pending: CloudflareTenantRootManualRefreshPendingV1,
+    },
+    Replay {
+        response: CloudflareTenantRootRefreshActivationResponseV1,
+    },
+    Throttled {
+        retry_at_ms: u64,
+    },
+    InProgress,
+}
+
+fn evaluate_manual_refresh_admission_v1(
+    record: &CloudflareTenantRootRefreshActiveStateRecordV1,
+    completion: Option<CloudflareTenantRootManualRefreshCompletionV1>,
+    operation_id: &str,
+    now_ms: u64,
+) -> RouterAbProtocolResult<CloudflareTenantRootManualRefreshAdmissionEvaluationV1> {
+    validate_manual_refresh_operation_id_v1(operation_id)?;
+    if let Some(completion) = completion {
+        validate_manual_refresh_completion_v1(&completion).map_err(stored_refresh_record_error)?;
+        if completion.operation_id != operation_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root manual refresh completion key collision",
+            ));
+        }
+        return Ok(
+            CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Replay {
+                response: completion.response,
+            },
+        );
+    }
+    if matches!(
+        &record.managed_restore_fence,
+        CloudflareTenantRootManagedRestoreFenceV1::Reserved { .. }
+    ) {
+        return Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress);
+    }
+    if let Some(pending) = &record.manual_refresh_pending {
+        validate_manual_refresh_pending_v1(pending).map_err(stored_refresh_record_error)?;
+        return Ok(
+            if pending.operation_id == operation_id
+                && pending.lifecycle_revision == record.lifecycle_revision
+            {
+                CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit {
+                    pending: pending.clone(),
+                }
+            } else {
+                CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress
+            },
+        );
+    }
+    if matches!(
+        &record.fence,
+        CloudflareTenantRootRefreshFenceV1::Reserved { .. }
+            | CloudflareTenantRootRefreshFenceV1::Executed { .. }
+    ) {
+        return Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress);
+    }
+    if let Some(completed_at_ms) = record.last_manual_refresh_completed_at_ms {
+        let retry_at_ms = completed_at_ms
+            .checked_add(TENANT_ROOT_MANUAL_REFRESH_INTERVAL_MS_V1)
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "tenant-root manual refresh cooldown timestamp overflow",
+                )
+            })?;
+        if now_ms < retry_at_ms {
+            return Ok(
+                CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Throttled { retry_at_ms },
+            );
+        }
+    }
+    Ok(
+        CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit {
+            pending: CloudflareTenantRootManualRefreshPendingV1 {
+                operation_id: operation_id.to_owned(),
+                lifecycle_revision: record.lifecycle_revision,
+            },
+        },
+    )
+}
+
+fn apply_manual_refresh_completion_transition_v1(
+    existing: &CloudflareTenantRootRefreshActiveStateRecordV1,
+    candidate: &mut CloudflareTenantRootRefreshActiveStateRecordV1,
+    manual_operation_id: Option<&str>,
+    now_ms: u64,
+) -> RouterAbProtocolResult<()> {
+    candidate.manual_refresh_pending = existing.manual_refresh_pending.clone();
+    candidate.last_manual_refresh_completed_at_ms = existing.last_manual_refresh_completed_at_ms;
+    if manual_operation_id.is_none() && existing.manual_refresh_pending.is_some() {
+        return Err(manual_refresh_in_progress_error());
+    }
+    if let Some(operation_id) = manual_operation_id {
+        validate_manual_refresh_operation_id_v1(operation_id)?;
+        let Some(pending) = existing.manual_refresh_pending.as_ref() else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ConflictingPair,
+                "tenant-root manual refresh activation has no pending admission",
+            ));
+        };
+        if pending.operation_id != operation_id
+            || pending.lifecycle_revision != existing.lifecycle_revision
+        {
+            return Err(manual_refresh_in_progress_error());
+        }
+        candidate.last_manual_refresh_completed_at_ms = Some(now_ms);
+        candidate.manual_refresh_pending = None;
+    }
+    Ok(())
+}
+
 struct ValidatedTenantRootRefreshActiveStateV1 {
     record: CloudflareTenantRootRefreshActiveStateRecordV1,
     identity_digest: TenantRootIdentityDigestV1,
@@ -7322,6 +7775,8 @@ fn refresh_active_state_record_from_verified_receipt(
         lifecycle_revision,
         fence: CloudflareTenantRootRefreshFenceV1::Open,
         managed_restore_fence: CloudflareTenantRootManagedRestoreFenceV1::Open,
+        manual_refresh_pending: None,
+        last_manual_refresh_completed_at_ms: None,
     })
 }
 
@@ -7556,6 +8011,28 @@ fn validate_refresh_active_state_record(
     {
         validate_refresh_terminal_response(&record, &activation_receipt, attempt, response)?;
     }
+    if let Some(pending) = &record.manual_refresh_pending {
+        validate_manual_refresh_pending_v1(pending)?;
+        if !matches!(
+            &record.fence,
+            CloudflareTenantRootRefreshFenceV1::Reserved { attempt }
+                | CloudflareTenantRootRefreshFenceV1::Executed { attempt }
+                if attempt.manual_operation_id.as_deref() == Some(pending.operation_id.as_str())
+        ) && !matches!(
+            &record.fence,
+            CloudflareTenantRootRefreshFenceV1::Open
+                | CloudflareTenantRootRefreshFenceV1::Terminal { .. }
+        ) {
+            return Err(manual_refresh_in_progress_error());
+        }
+    }
+    if let Some(completed_at_ms) = record.last_manual_refresh_completed_at_ms {
+        if completed_at_ms == 0 {
+            return Err(malformed_input(
+                "stored tenant-root manual refresh completion timestamp must be positive",
+            ));
+        }
+    }
     validate_refresh_fence(&record.fence)?;
     validate_managed_restore_fence_shape(&record.managed_restore_fence)?;
     require_managed_restore_fence_matches_active_fields_v1(
@@ -7780,6 +8257,11 @@ fn reserve_managed_restore_authorization_fence_v1(
     request: CloudflareTenantRootManagedRestoreAuthorizationRequestV1,
     now_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareTenantRootManagedRestoreFenceEvaluationV1> {
+    if active.record.manual_refresh_pending.is_some() {
+        return Err(managed_restore_conflict(
+            "tenant-root managed-restore authorization conflicts with a pending manual refresh",
+        ));
+    }
     validate_managed_restore_fence_against_active_v1(active)?;
     match &active.record.managed_restore_fence {
         CloudflareTenantRootManagedRestoreFenceV1::Open => {
@@ -8543,6 +9025,7 @@ fn refresh_attempt_from_commands(
         ));
     }
     Ok(CloudflareTenantRootRefreshAttemptV1 {
+        manual_operation_id: None,
         attempt_id_b64u: encode_base64url_bytes_v1(deriver_a.session_id().as_bytes()),
         identity_digest_b64u: encode_base64url_bytes_v1(deriver_a.identity_digest().as_bytes()),
         custody_lineage_b64u: deriver_a.custody_lineage().to_base64url(),
@@ -10479,6 +10962,8 @@ mod tests {
             lifecycle_revision: receipt.result_control_plane_revision(),
             fence: CloudflareTenantRootRefreshFenceV1::Open,
             managed_restore_fence: CloudflareTenantRootManagedRestoreFenceV1::Open,
+            manual_refresh_pending: None,
+            last_manual_refresh_completed_at_ms: None,
         };
         let verifying_key = SigningKey::from_bytes(&[0x41; 32])
             .verifying_key()
@@ -12278,6 +12763,141 @@ mod tests {
         );
         validate_refresh_active_state_record(restarted, authority(0x71), &issuer_keys)
             .expect("restarted terminal refresh state validates");
+    }
+
+    #[test]
+    fn manual_refresh_admission_transitions_are_durable_and_tenant_scoped() {
+        const FIRST_NOW_MS: u64 = 10_000;
+        let (record, _issuer_keys) = active_refresh_state_fixture();
+        let first =
+            evaluate_manual_refresh_admission_v1(&record, None, "operation-a", FIRST_NOW_MS)
+                .expect("first manual refresh admission");
+        let pending = match first {
+            CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { pending } => pending,
+            other => panic!("first manual refresh must commit: {other:?}"),
+        };
+        let mut admitted = record.clone();
+        admitted.manual_refresh_pending = Some(pending);
+
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(&admitted, None, "operation-a", FIRST_NOW_MS),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { .. })
+        ));
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(&admitted, None, "operation-b", FIRST_NOW_MS),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress)
+        ));
+
+        let restarted: CloudflareTenantRootRefreshActiveStateRecordV1 = serde_json::from_slice(
+            &serde_json::to_vec(&admitted).expect("persist pending manual refresh"),
+        )
+        .expect("reload pending manual refresh");
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(&restarted, None, "operation-a", FIRST_NOW_MS),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { .. })
+        ));
+
+        let mut completed = restarted.clone();
+        apply_manual_refresh_completion_transition_v1(
+            &restarted,
+            &mut completed,
+            Some("operation-a"),
+            FIRST_NOW_MS,
+        )
+        .expect("manual refresh completion transition");
+        assert!(completed.manual_refresh_pending.is_none());
+        assert_eq!(
+            completed.last_manual_refresh_completed_at_ms,
+            Some(FIRST_NOW_MS)
+        );
+        let retry_at_ms = FIRST_NOW_MS + TENANT_ROOT_MANUAL_REFRESH_INTERVAL_MS_V1;
+        let recovered_completed: CloudflareTenantRootRefreshActiveStateRecordV1 =
+            serde_json::from_slice(
+                &serde_json::to_vec(&completed).expect("persist completed manual refresh"),
+            )
+            .expect("reload completed manual refresh");
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(
+                &recovered_completed,
+                None,
+                "operation-b",
+                retry_at_ms - 1,
+            ),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Throttled {
+                retry_at_ms: value
+            }) if value == retry_at_ms
+        ));
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(&completed, None, "operation-b", retry_at_ms),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { .. })
+        ));
+
+        let (mut restore_active, restore_journal, _restore_issuer_keys) =
+            managed_restore_active_state_fixture();
+        restore_active.record.last_manual_refresh_completed_at_ms = Some(1_000_000);
+        let restore_request = managed_restore_request(0x61);
+        let restore_reserved = match reserve_managed_restore_authorization_fence_v1(
+            &restore_active,
+            &restore_journal,
+            restore_request,
+            1_000_250,
+        )
+        .expect("managed restore remains admissible during manual cooldown")
+        {
+            CloudflareTenantRootManagedRestoreFenceEvaluationV1::Commit { fence } => fence,
+            CloudflareTenantRootManagedRestoreFenceEvaluationV1::Replay { .. } => {
+                panic!("fresh managed restore must reserve during manual cooldown")
+            }
+        };
+        restore_active.record.managed_restore_fence = restore_reserved;
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(
+                &restore_active.record,
+                None,
+                "operation-c",
+                1_000_250,
+            ),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::InProgress)
+        ));
+
+        let completion = CloudflareTenantRootManualRefreshCompletionV1 {
+            operation_id: "operation-a".to_owned(),
+            completed_at_ms: FIRST_NOW_MS,
+            response: refresh_terminal_response_from_record(&completed),
+        };
+        let mut later_state = completed;
+        later_state.lifecycle_revision += 1;
+        let replay = evaluate_manual_refresh_admission_v1(
+            &later_state,
+            Some(
+                serde_json::from_slice(
+                    &serde_json::to_vec(&completion).expect("persist completion"),
+                )
+                .expect("reload completion"),
+            ),
+            "operation-a",
+            retry_at_ms,
+        )
+        .expect("replay completed operation after a later operation");
+        assert!(matches!(
+            replay,
+            CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Replay { response }
+                if response == completion.response
+        ));
+        assert_ne!(
+            manual_refresh_completion_storage_key_v1("tenant-a-operation"),
+            manual_refresh_completion_storage_key_v1("tenant-b-operation")
+        );
+        let (other_tenant, _issuer_keys) = active_refresh_state_fixture();
+        assert!(matches!(
+            evaluate_manual_refresh_admission_v1(
+                &other_tenant,
+                None,
+                "operation-b",
+                FIRST_NOW_MS + 1,
+            ),
+            Ok(CloudflareTenantRootManualRefreshAdmissionEvaluationV1::Commit { .. })
+        ));
     }
 
     #[test]

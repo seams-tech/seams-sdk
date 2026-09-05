@@ -10,10 +10,13 @@ Ed25519 derivation architecture revised: August 29, 2026
 
 Release status updated: September 5, 2026
 
-Status: release preparation. The active plan has completed 24 of 26 criteria.
+Status: production rollout. The active plan has completed 26 of 27 criteria
+(96.3%).
 The cryptographic core, tenant-root creation, production derivation, refresh,
 crash recovery, managed one-role restore, release tests, same-account benchmark,
-and staging operating path are complete. The runtime tree is on `main`.
+and staging operating path are complete. The previously released runtime tree
+is on `main`; the manual refresh throttle is implemented and locally verified
+on the R120 branch, pending deployment.
 
 Production-testnet now runs the R120 Router, Deriver A, Deriver B, and dedicated
 tenant-root control plane. A deployed proof created a fresh tenant root, replayed
@@ -24,12 +27,21 @@ epoch-3 active rows. The control plane's `workers.dev` route was disabled again
 after the proof. GitHub's workflow-review gate blocked the supported full-lane
 deployment before job execution.
 
-Production is a destructive pre-launch reset. Its pre-R120 database state will
-be discarded, so the release has no wallet migration, ceremony drain, mixed-
-profile serving, or legacy rollback window. The remaining operating path is to
-provision distinct external A/B managed-backup wrapping authorities, remove the
-deployment-root implementation, recreate the production databases, deploy one
-R120 revision, and prove fresh ECDSA and Ed25519 registration and signing.
+Production's five D1 databases were deleted and recreated on September 5.
+Distinct A/B wrapping keys now live in Google Cloud KMS, with separate
+role-scoped service accounts and separate R2 backup buckets. All five Rust
+Workers are deployed. Mainnet tenant `r120-kms-proof-1788573248920` reached
+`ready` at revision 1 through the deployed KMS seal/open and R2 backup path;
+the temporary Router public endpoint was disabled afterward. Obsolete
+deployment-root Secrets and bindings are absent from the active mainnet,
+testnet, and staging Derivers and their GitHub deployment environments.
+Historical Worker versions and local backups may retain old values; this is
+operational cleanup, with no claim of cryptographic erasure.
+
+The remaining release criterion is the complete public Gateway/Console/frontend
+deployment, including the one-hour manual refresh throttle, with fresh ECDSA
+and Ed25519 registration/signing proof. The reset requires no wallet
+migration, ceremony drain, mixed-profile serving, or legacy rollback window.
 The historical detailed ledger remains design evidence and does not determine
 progress.
 
@@ -1098,8 +1110,8 @@ owned by the lifecycle activation path.
 
 This public checkpoint contains no secret shares. The private control-plane and
 Deriver transports consume it for live two-role orchestration and crash/restart
-recovery. Production launch remains gated on the external A/B wrapping
-authorities and fresh post-reset canaries.
+recovery. The external A/B wrapping authorities are provisioned. Production
+launch remains gated on fresh post-reset registration/signing canaries.
 
 ## Stable Derivation Boundary
 
@@ -2135,8 +2147,10 @@ count toward progress.
 
 ### Current release state
 
-- Active completion is 24/26 (92.3%). Foundation and Milestones 1-3 are
-  complete; Milestone 4 has four of six criteria complete.
+- Active completion is 26/27 (96.3%). Foundation and Milestones 1-3 and 5 are
+  complete; Milestone 4 has five of six criteria complete. The remaining release
+  includes deployment of the manual refresh throttle and proof of public
+  production registration/signing.
 - Production-testnet proof `proof-1788540559100` replayed creation exactly,
   refreshed epoch 1 to 2, restored an intentionally deleted Deriver A epoch-2
   row, and completed the mandatory forward refresh to epoch 3. The refresh and
@@ -2149,8 +2163,11 @@ count toward progress.
   `workers.dev` route.
 - Production-testnet Console secret mappings are on `main`; the full-lane run
   `33897731751` stopped before job execution at GitHub's workflow-review gate.
-- Production activation remains blocked until distinct external A/B
-  managed-backup wrapping authorities are provisioned outside Cloudflare.
+- Production A/B wrapping authorities are provisioned in Google Cloud KMS
+  project `seams-501403`, keyring `r120-production`, under distinct
+  `deriver-a-backup` and `deriver-b-backup` keys (version 1). Each role's
+  service account is authorized only on its own key. Live creation passed;
+  public registration/signing remains to be proved.
 
 ### Completed foundation
 
@@ -2258,13 +2275,52 @@ ECDSA/Ed25519 continuity path or count toward its completion.
       pre-launch reset removes any need for ceremony fencing, draining, wallet
       migration, client mutation, mixed-profile serving, or old-profile
       rollback.
-- [ ] Before production launch, remove obsolete deployment-root code, bindings,
+- [x] Before production launch, remove obsolete deployment-root code, bindings,
       Secrets, temporary allowances, dead exports, and superseded tests. Delete
       migrations that were never deployed and preserve applied migration
       history in retained environments. No legacy rollback window remains.
+      Source cleanup is complete; September 5 deployed binding and Secret
+      readback verified both mainnet Derivers clean. Staging/testnet Workers
+      and all six role deployment environments are also clean. Historical
+      deployment versions and offline backups remain outside this active-path
+      cleanup claim.
 - [x] Update the active architecture and operations documentation and leave the
-      historical ledger unchanged. R120 is complete when the two preceding
-      runtime and cleanup criteria close.
+      historical ledger unchanged. R120 is complete when the remaining public
+      production deployment and registration/signing criterion closes.
+
+### Milestone 5: throttle manual tenant-root refresh
+
+- [x] Enforce at the authenticated server boundary at most one successful
+      tenant-admin-initiated refresh per tenant in any rolling hour. Use the
+      Router-owned tenant Durable Object's authoritative completion time; do
+      not trust browser time or rely on UI debounce. Admit only one operation
+      at a time, return the existing result for an exact idempotent replay, and
+      reject a distinct request during the cooldown before any Deriver, KMS,
+      R2, or role-private D1 mutation. Return the server-computed retry time.
+      Mandatory post-restore forward refresh and separately authorized
+      platform emergency refresh remain available and cannot be invoked with a
+      tenant-admin capability. Prove once that the first refresh succeeds, its
+      exact retry replays, another request inside the hour performs no durable
+      or provider work, and a request at the hour boundary succeeds.
+
+Manual requests retain their `operationId` from the authenticated Console route
+through durable admission. HTTP 429 returns `retryAtMs` and `Retry-After`;
+HTTP 409 identifies a different operation already in progress. Completion time
+is committed with activation, and completed operation receipts survive later
+refreshes so a delayed retry cannot accidentally start a new rotation. The
+hourly limit uses the last successful manual activation; failed requests do
+not consume the allowance. Managed restore retains its existing capability
+checks and mandatory forward refresh. Tenant requests cannot supply an
+emergency mode or bypass selector.
+
+Implementation verified locally on September 5: all 228 strict Router library
+tests and four Console refresh-route tests pass, as do the Router WASM build
+check and Console/unit TypeScript checks. The focused admission test exercises
+production state transitions through successful completion, persisted replay,
+pending-operation conflicts, cooldown rejection, the exact hour boundary,
+tenant isolation, and managed-restore admission. Console coverage checks the
+429 retry contract and rejects tenant-supplied bypass fields. Production
+deployment of this change remains part of Milestone 4's open release criterion.
 
 ### Execution rules
 

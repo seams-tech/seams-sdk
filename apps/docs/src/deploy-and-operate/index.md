@@ -20,6 +20,10 @@ Use this section to prepare a release:
 5. Configure [observability and audit](/deploy-and-operate/observability-and-audit).
 6. Rehearse [troubleshooting](/deploy-and-operate/troubleshooting).
 
+See [tenant-root backups](/deploy-and-operate/tenant-root-backups) for the
+separate A/B recovery copies in R2, Google KMS key ownership, restore behavior,
+and operating costs.
+
 Repository operators should also follow the private deployment runbook for the
 exact lane, environment, and release workflow. Public application developers do
 not need custody credentials or internal service topology.

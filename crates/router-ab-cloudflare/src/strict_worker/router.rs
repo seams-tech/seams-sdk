@@ -11,9 +11,10 @@ use crate::durable_object::tenant_root_creation::{
     execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1,
     execute_cloudflare_router_tenant_root_creation_cleanup_call_v1,
     execute_cloudflare_router_tenant_root_creation_initial_activation_call_v1,
+    execute_cloudflare_router_tenant_root_manual_refresh_admission_call_v1,
     execute_cloudflare_router_tenant_root_refresh_activation_call_v1,
     execute_cloudflare_router_tenant_root_refresh_attempt_reservation_call_v1,
-    CloudflareTenantRootRefreshFenceV1,
+    CloudflareTenantRootManualRefreshAdmissionOutcomeV1, CloudflareTenantRootRefreshFenceV1,
 };
 use crate::tenant_root_control_plane::{
     execute_cloudflare_tenant_root_control_plane_initial_activation_service_call_v1,
@@ -79,6 +80,46 @@ use crate::{
 struct CloudflareRouterTenantRootRefreshResponseV1 {
     activation_receipt_digest_b64u: String,
     lifecycle_revision: u64,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudflareRouterTenantRootManualRefreshRequestV1 {
+    operation_id: String,
+    identity_digest_b64u: String,
+    custody_lineage_b64u: String,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+enum CloudflareRouterTenantRootManualRefreshResultV1 {
+    Completed(CloudflareRouterTenantRootRefreshResponseV1),
+    Throttled { retry_at_ms: u64 },
+    InProgress,
+}
+
+#[cfg(feature = "strict-worker-router-entrypoint")]
+fn manual_refresh_http_response_v1(
+    result: CloudflareRouterTenantRootManualRefreshResultV1,
+) -> worker::Result<Response> {
+    match result {
+        CloudflareRouterTenantRootManualRefreshResultV1::Completed(response) => {
+            Response::from_json(&response)
+        }
+        CloudflareRouterTenantRootManualRefreshResultV1::Throttled { retry_at_ms } => {
+            Ok(Response::from_json(&serde_json::json!({
+                "code": "tenant_root_refresh_throttled",
+                "retry_at_ms": retry_at_ms,
+            }))?
+            .with_status(429))
+        }
+        CloudflareRouterTenantRootManualRefreshResultV1::InProgress => {
+            Ok(Response::from_json(&serde_json::json!({
+                "code": "tenant_root_refresh_in_progress",
+            }))?
+            .with_status(409))
+        }
+    }
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -1162,8 +1203,8 @@ async fn finish_cloudflare_router_tenant_root_refresh_v1(
 async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     env: &Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
-    request: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1,
-) -> RouterAbProtocolResult<CloudflareRouterTenantRootRefreshResponseV1> {
+    request: CloudflareRouterTenantRootManualRefreshRequestV1,
+) -> RouterAbProtocolResult<CloudflareRouterTenantRootManualRefreshResultV1> {
     let identity_digest = TenantRootIdentityDigestV1::from_bytes(
         crate::decode_base64url_bytes_v1(
             "tenant-root refresh identity digest",
@@ -1184,6 +1225,51 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
                 format!("tenant-root refresh custody lineage is invalid: {error}"),
             )
         })?;
+    let admitted_revision =
+        match execute_cloudflare_router_tenant_root_manual_refresh_admission_call_v1(
+            env,
+            identity_digest,
+            custody_lineage,
+            request.operation_id.clone(),
+        )
+        .await?
+        {
+            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Admitted {
+                lifecycle_revision,
+            } => lifecycle_revision,
+            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Replayed { response } => {
+                let active = execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
+                env, identity_digest, custody_lineage,
+            ).await?;
+                // A delayed retry must never reinstall an epoch superseded by refresh or restore.
+                if active.lifecycle_revision == response.lifecycle_revision {
+                    replay_cloudflare_router_terminal_refresh_cleanup_v1(
+                        env,
+                        runtime,
+                        &request.identity_digest_b64u,
+                        &request.custody_lineage_b64u,
+                        crate::encode_base64url_bytes_v1(
+                            active.activation_receipt.canonical_bytes(),
+                        ),
+                    )
+                    .await?;
+                }
+                return Ok(CloudflareRouterTenantRootManualRefreshResultV1::Completed(
+                    CloudflareRouterTenantRootRefreshResponseV1 {
+                        activation_receipt_digest_b64u: response.activation_receipt_digest_b64u,
+                        lifecycle_revision: response.lifecycle_revision,
+                    },
+                ));
+            }
+            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::Throttled { retry_at_ms } => {
+                return Ok(CloudflareRouterTenantRootManualRefreshResultV1::Throttled {
+                    retry_at_ms,
+                });
+            }
+            CloudflareTenantRootManualRefreshAdmissionOutcomeV1::InProgress => {
+                return Ok(CloudflareRouterTenantRootManualRefreshResultV1::InProgress);
+            }
+        };
     let active =
         execute_cloudflare_router_tenant_root_creation_active_state_with_revision_read_call_v1(
             env,
@@ -1191,7 +1277,15 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
             custody_lineage,
         )
         .await?;
-    if let Some(response) = replay_terminal_refresh_response_v1(&active.refresh_fence)? {
+    if active.lifecycle_revision != admitted_revision {
+        let response = replay_terminal_refresh_response_v1(&active.refresh_fence)?
+            .filter(|_| matches!(&active.refresh_fence,
+                CloudflareTenantRootRefreshFenceV1::Terminal { attempt, .. }
+                    if attempt.manual_operation_id.as_deref() == Some(request.operation_id.as_str())))
+            .ok_or_else(|| RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ConflictingPair,
+                "tenant-root manual refresh admission revision changed; retry the same operation",
+            ))?;
         replay_cloudflare_router_terminal_refresh_cleanup_v1(
             env,
             runtime,
@@ -1200,14 +1294,36 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
             crate::encode_base64url_bytes_v1(active.activation_receipt.canonical_bytes()),
         )
         .await?;
-        return Ok(response);
+        return Ok(CloudflareRouterTenantRootManualRefreshResultV1::Completed(
+            response,
+        ));
+    }
+    if matches!(
+        &active.refresh_fence,
+        CloudflareTenantRootRefreshFenceV1::Terminal { .. }
+    ) {
+        // Finish interrupted retirement before replacing the terminal attempt.
+        replay_cloudflare_router_terminal_refresh_cleanup_v1(
+            env,
+            runtime,
+            &request.identity_digest_b64u,
+            &request.custody_lineage_b64u,
+            crate::encode_base64url_bytes_v1(active.activation_receipt.canonical_bytes()),
+        )
+        .await?;
     }
     let (refresh_context_b64u, deriver_a_refresh_command_b64u, deriver_b_refresh_command_b64u) =
         match active.refresh_fence {
-            CloudflareTenantRootRefreshFenceV1::Open => {
+            CloudflareTenantRootRefreshFenceV1::Open
+            | CloudflareTenantRootRefreshFenceV1::Terminal { .. } => {
+                let commands_request = CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 {
+                    identity_digest_b64u: request.identity_digest_b64u.clone(),
+                    custody_lineage_b64u: request.custody_lineage_b64u.clone(),
+                };
                 let issued =
                     execute_cloudflare_tenant_root_control_plane_refresh_commands_service_call_v1(
-                        env, &request,
+                        env,
+                        &commands_request,
                     )
                     .await?;
                 let reserved =
@@ -1218,11 +1334,26 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
                         issued.refresh_context_b64u,
                         issued.deriver_a_refresh_command_b64u,
                         issued.deriver_b_refresh_command_b64u,
+                        Some(request.operation_id.clone()),
                     )
                     .await?;
                 refresh_attempt_packages_v1(reserved.refresh_fence)?
             }
-            fence => refresh_attempt_packages_v1(fence)?,
+            fence => {
+                match &fence {
+                    CloudflareTenantRootRefreshFenceV1::Reserved { attempt }
+                    | CloudflareTenantRootRefreshFenceV1::Executed { attempt }
+                        if attempt.manual_operation_id.as_deref()
+                            == Some(request.operation_id.as_str()) => {}
+                    _ => {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ConflictingPair,
+                            "tenant-root manual refresh attempt belongs to another operation",
+                        ))
+                    }
+                }
+                refresh_attempt_packages_v1(fence)?
+            }
         };
     let deriver_a_request = CloudflareDeriverTenantRootRefreshRequestV1 {
         refresh_context_b64u: refresh_context_b64u.clone(),
@@ -1246,7 +1377,7 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
     );
     let deriver_a = deriver_a?;
     let deriver_b = deriver_b?;
-    finish_cloudflare_router_tenant_root_refresh_v1(
+    let completed = finish_cloudflare_router_tenant_root_refresh_v1(
         env,
         runtime,
         &request.identity_digest_b64u,
@@ -1254,7 +1385,10 @@ async fn coordinate_cloudflare_router_tenant_root_refresh_v1(
         deriver_a,
         deriver_b,
     )
-    .await
+    .await?;
+    Ok(CloudflareRouterTenantRootManualRefreshResultV1::Completed(
+        completed,
+    ))
 }
 
 #[cfg(feature = "strict-worker-router-entrypoint")]
@@ -1345,6 +1479,7 @@ async fn coordinate_cloudflare_router_tenant_root_managed_restore_v1(
                     issued.refresh_context_b64u,
                     issued.deriver_a_refresh_command_b64u,
                     issued.deriver_b_refresh_command_b64u,
+                    None,
                 )
                 .await?;
             refresh_attempt_packages_v1(reserved.refresh_fence)?
@@ -1630,7 +1765,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
             Ok(runtime) => runtime,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let parsed: CloudflareTenantRootControlPlaneRefreshCommandsRequestV1 =
+        let parsed: CloudflareRouterTenantRootManualRefreshRequestV1 =
             match decode_bounded_json_request(
                 &mut request,
                 TENANT_ROOT_CONTROL_PLANE_REFRESH_COMMANDS_REQUEST_MAX_BYTES_V1,
@@ -1643,7 +1778,7 @@ pub(super) async fn handle_strict_router_fetch_v1(
         return match coordinate_cloudflare_router_tenant_root_refresh_v1(&env, &runtime, parsed)
             .await
         {
-            Ok(response) => Response::from_json(&response),
+            Ok(response) => manual_refresh_http_response_v1(response),
             Err(err) => cloudflare_protocol_error_response_v1(err),
         };
     }
@@ -2548,10 +2683,38 @@ mod prewarm_tests {
 #[cfg(all(test, feature = "strict-worker-router-entrypoint"))]
 mod refresh_replay_tests {
     use super::replay_terminal_refresh_response_v1;
+    use super::CloudflareRouterTenantRootManualRefreshRequestV1;
     use crate::durable_object::tenant_root_creation::{
         CloudflareTenantRootRefreshActivationResponseV1, CloudflareTenantRootRefreshAttemptV1,
         CloudflareTenantRootRefreshFenceV1, CloudflareTenantRootRefreshTerminalOutcomeV1,
     };
+
+    #[test]
+    fn manual_refresh_request_requires_operation_identity_and_rejects_bypass() {
+        let request = serde_json::json!({
+            "operation_id": "manual-operation",
+            "identity_digest_b64u": "identity",
+            "custody_lineage_b64u": "lineage",
+        });
+        assert!(
+            serde_json::from_value::<CloudflareRouterTenantRootManualRefreshRequestV1>(
+                request.clone()
+            )
+            .is_ok()
+        );
+        let mut missing = request.clone();
+        missing.as_object_mut().unwrap().remove("operation_id");
+        assert!(
+            serde_json::from_value::<CloudflareRouterTenantRootManualRefreshRequestV1>(missing)
+                .is_err()
+        );
+        let mut bypass = request;
+        bypass["mode"] = serde_json::json!("emergency");
+        assert!(
+            serde_json::from_value::<CloudflareRouterTenantRootManualRefreshRequestV1>(bypass)
+                .is_err()
+        );
+    }
 
     #[test]
     fn completed_refresh_replay_returns_the_persisted_activation_response() {
@@ -2561,6 +2724,7 @@ mod refresh_replay_tests {
         };
         let fence = CloudflareTenantRootRefreshFenceV1::Terminal {
             attempt: CloudflareTenantRootRefreshAttemptV1 {
+                manual_operation_id: None,
                 attempt_id_b64u: "attempt".to_owned(),
                 identity_digest_b64u: "identity".to_owned(),
                 custody_lineage_b64u: "lineage".to_owned(),

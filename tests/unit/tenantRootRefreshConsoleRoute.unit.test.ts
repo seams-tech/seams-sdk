@@ -85,7 +85,20 @@ function activeGrant(
   };
 }
 
-async function createRoute(role: ConsoleAuthClaims['role'] = 'OWNER'): Promise<{
+function successfulRouterRefreshResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      activation_receipt_digest_b64u: 'activation-receipt-refresh-test',
+      lifecycle_revision: 2,
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+async function createRoute(
+  role: ConsoleAuthClaims['role'] = 'OWNER',
+  routerResponse: () => Response = successfulRouterRefreshResponse,
+): Promise<{
   readonly route: (request: Request) => Promise<Response | null>;
   readonly lookup: { identity: TenantRootIdentityV1; identityDigestB64u: string }[];
   readonly forwarded: Request[];
@@ -105,13 +118,7 @@ async function createRoute(role: ConsoleAuthClaims['role'] = 'OWNER'): Promise<{
     router: {
       async fetch(input, init) {
         forwarded.push(new Request(input, init));
-        return new Response(
-          JSON.stringify({
-            activation_receipt_digest_b64u: 'activation-receipt-refresh-test',
-            lifecycle_revision: 2,
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        );
+        return routerResponse();
       },
     },
     internalServiceAuthSecret: 'router-internal-refresh-test',
@@ -154,6 +161,7 @@ test('refresh route resolves active lineage and forwards only the bounded Router
     'router-internal-refresh-test',
   );
   await expect(forwarded[0]?.json()).resolves.toEqual({
+    operation_id: 'refresh-operation-test',
     identity_digest_b64u: identityDigestB64u,
     custody_lineage_b64u: CUSTODY_LINEAGE_B64U,
   });
@@ -187,6 +195,7 @@ test('refresh route rejects missing or smuggled request selectors', async () => 
         role: 'deriver_a',
         now_ms: 1,
         signer_key_id: 'caller-signer',
+        mode: 'emergency',
       }),
     }),
   );
@@ -198,6 +207,7 @@ test('refresh route rejects missing or smuggled request selectors', async () => 
 });
 
 const boundedRefreshRequest: TenantRootRefreshRouterRequestV1 = {
+  operation_id: 'refresh-operation-type-test',
   identity_digest_b64u: 'identity-digest-type-test',
   custody_lineage_b64u: 'custody-lineage-type-test',
 };
@@ -211,3 +221,74 @@ const refreshRequestWithAuthority: TenantRootRefreshRouterRequestV1 = {
 };
 
 void refreshRequestWithAuthority;
+
+// @ts-expect-error A refresh must retain its operation identity across retries.
+const refreshRequestWithoutOperation: TenantRootRefreshRouterRequestV1 = {
+  identity_digest_b64u: 'identity-digest-type-test',
+  custody_lineage_b64u: 'custody-lineage-type-test',
+};
+
+void refreshRequestWithoutOperation;
+
+function throttledRouterRefreshResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      code: 'tenant_root_refresh_throttled',
+      retry_at_ms: 1_800_000_000_000,
+    }),
+    { status: 429 },
+  );
+}
+
+function inProgressRouterRefreshResponse(): Response {
+  return new Response(JSON.stringify({ code: 'tenant_root_refresh_in_progress' }), { status: 409 });
+}
+
+function invalidRetryRouterRefreshResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      code: 'tenant_root_refresh_throttled',
+      retry_at_ms: '1800000000000',
+    }),
+    { status: 429 },
+  );
+}
+
+test('refresh route preserves server cooldown and in-progress outcomes and rejects malformed retry times', async () => {
+  const throttled = await createRoute('OWNER', throttledRouterRefreshResponse);
+  const cooldown = await throttled.route(
+    new Request('https://console.test/console/tenant-root/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ operationId: 'refresh-throttled' }),
+    }),
+  );
+  expect(cooldown?.status).toBe(429);
+  expect(cooldown?.headers.get('Retry-After')).toBe(new Date(1_800_000_000_000).toUTCString());
+  await expect(cooldown?.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'tenant_root_refresh_throttled',
+    retryAtMs: 1_800_000_000_000,
+  });
+
+  const pending = await createRoute('OWNER', inProgressRouterRefreshResponse);
+  const conflict = await pending.route(
+    new Request('https://console.test/console/tenant-root/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ operationId: 'refresh-conflict' }),
+    }),
+  );
+  expect(conflict?.status).toBe(409);
+  await expect(conflict?.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'tenant_root_refresh_in_progress',
+  });
+
+  const invalid = await createRoute('OWNER', invalidRetryRouterRefreshResponse);
+  const rejected = await invalid.route(
+    new Request('https://console.test/console/tenant-root/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ operationId: 'refresh-invalid-time' }),
+    }),
+  );
+  expect(rejected?.status).toBe(502);
+});
