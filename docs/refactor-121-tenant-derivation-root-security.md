@@ -2,11 +2,12 @@
 
 Created: August 28, 2026
 
-Status: proposed follow-up to
-[Refactor 120](./refactor-120-rotate-tenant-secrets.md). Implementation starts
-after Refactor 120 materializes the tenant-root identity, root algebra,
-operational lifecycle, and recovery-sharing contracts. This plan freezes the
-tenant-facing artifact, authorization, CLI, download, and restore contracts.
+Status: ready to begin the dashboard-rotation checkpoint following
+[Refactor 120](./refactor-120-rotate-tenant-secrets.md). Sequencing reviewed
+September 5, 2026. R120 supplies the operational refresh path and native recovery
+artifact primitives. Recovery service integration, retention-key provisioning,
+and CLI delivery remain R121 work. The contracts below define the full target;
+each implementation phase ships a bounded operating path.
 
 ## Outcome
 
@@ -57,12 +58,50 @@ Refactor 121 owns:
 - role-specific restore import envelopes;
 - dashboard and CLI progress, audit, accessibility, and error behavior.
 
-[Refactor 122](./refactor-122-deployment-portability.md) may reuse the operational
-patterns, CLI transport, and progress UI. These packages restore only the exact
-logical tenant root; they do not move wallet inventory, active signer material,
-application routing, RP IDs, or wallet authorities. Refactor 121 does not decide
-whether Refactor 122 composes deployment portability with this independent root
-restore operation.
+[Refactor 122](./refactor-122-deployment-portability.md) follows R121 and owns
+wallet/deployment portability. R121 packages restore only the exact logical
+tenant root; they do not move wallet inventory, active signer material,
+application routing, RP IDs, or wallet authorities.
+
+### Handoff to Refactor 122
+
+Keep three operating paths distinct:
+
+| Path | Owner | Artifact and identity boundary |
+| --- | --- | --- |
+| Managed availability restore | R120 | Service-held role backups; existing managed authorization and forward refresh |
+| Tenant-controlled root restore | R121 | Separate A/B recovery packages and manifest; exact logical root identity, fresh destination custody lineage |
+| Wallet/deployment portability | R122 | Tenant portability package and curve-specific handoff capsules; wallet identity continuity with explicit destination identity mapping |
+
+R122's current migration design provisions fresh destination derivation roots
+for new registrations and preserves existing wallet keys through per-wallet
+handoff capsules. It does not require an R121 root restore. R121 keeps exact
+tenant/project/environment/signing-root identity binding and does not add a
+rebinding mode for migration. Any later composition must be specified in R122
+without weakening this boundary or combining the A/B recovery packages into
+the portability archive.
+
+R121 implements root initialization/import into an already provisioned empty
+destination. The customer-facing Cloudflare resource compiler, full deployment
+bootstrap, deployment recovery package, wallet inventory import, domain/RP-ID
+handling, signing-authority cutover, and migration rollback remain R122 work.
+R121's explicit retirement action concerns only the named root custody lineage;
+it is not evidence that wallet signing participants or application routes were
+revoked.
+
+R122 should extend the same native `seams` binary with `self-host` commands and
+reuse concrete authentication transport, safe-file handling, redacted output,
+and dashboard progress components where their contracts fit. Its portability
+recipients, trust roots, operation capabilities, package formats, and activation
+receipts retain separate domain types. Do not build a generic migration
+framework or speculative provider adapters in R121 to anticipate R122.
+
+Before R122 implementation, reconcile its August 20 assumptions with R120/R121:
+tenant roots are independently randomized, active deployment-root paths have
+been removed, and Google KMS managed backups are separate from tenant recovery
+artifacts. R122's references to shared managed derivation roots and deployment
+topology are design assumptions to update, not compatibility requirements for
+R121.
 
 ## Decisions
 
@@ -107,8 +146,10 @@ restore operation.
     derivation ceremonies for the selected tenant may be briefly fenced as
     defined by Refactor 120.
 17. Scheduled rotation and manual rotation use the same protocol. The first page
-    shows the configured schedule and next rotation; custom schedule editing is
-    outside the first release.
+    shows a schedule and next rotation only when backed by an operating
+    scheduler. The initial dashboard checkpoint supports manual rotation;
+    scheduling is separate delivery work. Custom schedule editing is outside
+    the first release.
 18. Once a tenant downloads both recovery packages and controls both recovery
     private keys, that recovery set cannot be cryptographically revoked by the
     managed service. Replacing the recovery set protects future custody policy;
@@ -213,6 +254,12 @@ restore operation.
     role's outer retention-key version so storage history cannot reopen the
     inner package. `operational_rotation_v1` reports only removal from the active
     service path.
+47. Manual rotation reuses R120's durable admission: one successful manual
+    refresh per tenant per rolling hour. The same `operationId` resumes or
+    replays its recorded result. A distinct concurrent operation receives HTTP
+    409; cooldown rejection receives HTTP 429 with `retryAtMs` and `Retry-After`
+    before provider work. Mandatory post-restore refresh keeps its separate
+    authorization. No tenant-supplied selector bypasses the limit.
 
 ## Frozen Product and Artifact Contracts
 
@@ -387,6 +434,13 @@ KiB before allocation. HTTP downloads send the exact content type,
 attachment filename.
 
 ### Recovery-set replacement and download evidence
+
+These tenant-controlled recovery packages are separate from R120's managed
+A/B availability backups in R2. The deployed shared A/B Google KMS versions
+cannot independently destroy one tenant recovery set's retention keys. Before
+shipping package retention, select and provision independently destructible
+role/set key versions and establish their cost and lifecycle. Preserve the
+destruction contract below; this dependency does not block the rotation page.
 
 At most one active and one pending recovery set exist. Initial generation and
 replacement use these branches:
@@ -592,7 +646,7 @@ Show:
 - active `TenantRootShareEpoch`;
 - stable public root-commitment fingerprint;
 - last completed rotation;
-- next scheduled rotation;
+- next scheduled rotation when an operating scheduler supplies it;
 - active job phase, if any;
 - previous-epoch retirement status;
 - link to the redacted audit receipt.
@@ -620,6 +674,14 @@ ceremonies may pause briefly.
 The button starts an asynchronous job and changes to a non-interactive progress
 state. Reloading the page resumes from server state. A repeated request with the
 same idempotency key returns the existing job.
+
+Preserve that operation ID across retries and page reloads. Show the
+server-computed next eligible manual refresh time during cooldown; button
+disablement is presentation only. R120's current Console route waits for the
+Router result. Add durable dispatch/resumption and redacted status reads over
+the existing operation so browser disconnection cannot strand it. Progress
+comes from authoritative lifecycle checkpoints, with no second refresh engine
+or duplicate mutation endpoint.
 
 Progress phases use plain language:
 
@@ -907,6 +969,13 @@ The first release requires:
   import;
 - independent audit identity for the A and B restore operations.
 
+For the rotation checkpoint, extend the existing
+`POST /console/tenant-root/refresh` route with server-verified fresh step-up.
+Map the `project.edit` requirement through the established Console permission
+policy and enforce it on that same route for dashboard and CLI callers. The
+current R120 authentication/authorization check alone does not establish fresh
+step-up. Recovery quorum and recipient enrollment belong to the recovery phase.
+
 The A and B imports may be completed by different actors and machines. One actor
 may perform both only by running two role-specific CLI processes with separate
 key files. No process or session receives both recovery private keys or opened
@@ -1093,36 +1162,23 @@ backlog. Tenant identity uses the console's approved redacted label policy.
   does not match this recovery manifest. Select the Deriver B file from recovery
   set …”.
 
-## Preparation Phase
+## Preparation by Checkpoint
 
-Before production implementation:
+There is no global preparation gate. Reuse existing Rust types and vectors;
+add only the contracts needed by the operating path being implemented.
 
-- [ ] Materialize Refactor 120's tenant identity, lineage, recovery-share,
-      commitment, receipt, and lifecycle contracts as Rust types and vectors.
-- [ ] Materialize this plan's governance union, operation digest, one-use
-      capability, step-up evidence, and self-approval rejection as exact types
-      and red tests.
-- [ ] Generate canonical descriptor, package, manifest, import-envelope,
-      certificate-chain, and trust-snapshot fixtures from Rust.
-- [ ] Implement `encrypted_file_v1` vectors, file-permission fixtures,
-      passphrase-input rejection, zeroization, memory-lock reporting, and crash
-      handling before adding network commands.
-- [ ] Freeze role-specific CLI parsed-command branches, exit codes, JSON result
-      unions, filenames, MIME types, and interruption behavior.
-- [ ] Materialize destination bootstrap, restore-session, import-key,
-      source-disposition, cleanup, and clone-lineage states as exhaustive types.
-- [ ] Produce signed test release and recovery trust roots, signer certificates,
-      revocation snapshots, and release checksum fixtures.
-- [ ] Inventory every dashboard, console server, wallet console adapter, Router
-      A/B service binding, audit, approval, and CLI boundary listed below.
-- [ ] Add red contract fixtures for cross-tenant access, wrong-role restore,
-      active-destination restore, mixed recovery sets, stale lifecycle revisions,
-      concurrent operations, and secret-bearing logs.
-- [ ] Prove recovery succeeds with the source deployment fully unavailable.
-- [ ] Prove the same recovery set creates two distinct destination lineages and
-      that neither can replay the other's commands or receipts.
-- [ ] Stop if a browser, console service, Router, or one CLI invocation must hold
-      both decrypted recovery shares.
+- Dashboard rotation needs redacted status/progress types, fresh step-up,
+  existing operation identity, and R120 admission/error contracts.
+- Tenant recovery needs governance and one-use approval types, recipient proof,
+  artifact/trust verification, and a provisioned retention-key lifecycle.
+- CLI and restore need local-key/file safety, exact parsed-command branches,
+  bootstrap/import/cleanup types, and role-local secret handling.
+- Signed release fixtures and distribution checks belong to CLI delivery.
+
+Source-offline restore and clone-isolation proofs run after the restore path
+works. They are release criteria, not prerequisites for implementing it. The
+secret boundary applies throughout: no browser, console, Router, or CLI
+invocation may receive both decrypted recovery shares.
 
 Native cryptographic preparation status on August 30, 2026:
 
@@ -1145,9 +1201,9 @@ Native cryptographic preparation status on August 30, 2026:
       bytes, zero shares, and commitment mismatch fail closed in native Rust
       tests. Sealing consumes caller-supplied cryptographic RNGs and retains no
       deterministic seed state in the production API.
-- [ ] Generate standalone certificate-chain and trust-snapshot fixtures, the
-      encrypted local-key format, CLI/file-system vectors, and the complete
-      lifecycle/capability state types before network or UI implementation.
+- [ ] Complete certificate-chain and trust-snapshot fixtures for recovery;
+      implement local-key/file-system vectors and lifecycle/capability types
+      with the CLI and restore checkpoints. These do not gate rotation UI work.
 
 ### Boundary inventory
 
@@ -1172,9 +1228,8 @@ Native cryptographic preparation status on August 30, 2026:
 | Deployment                 | Destination identity and lineage initialization, source-offline configuration, role-private endpoints, CORS exclusion, and verified-retirement probes                                         |
 | Tests                      | Dashboard component tests, console route/unit tests, Cloudflare integration tests, CLI process tests, type fixtures, and intended-behaviour contracts                                         |
 
-The inventory is complete only after every raw JSON, file, command-line,
-environment, HTTP, D1, Worker binding, Rust/WASM, generated type, log, and audit
-boundary has an owner and an authoritative test.
+Use this inventory to locate the boundaries touched by each checkpoint. Reuse
+their existing owners and tests; unrelated boundaries do not gate delivery.
 
 ### Known pre-implementation incompatibilities
 
@@ -1250,61 +1305,63 @@ binding assertions.
 
 ## Implementation Plan
 
-### Phase 1: freeze shared contracts
+### Phase 1: ship dashboard rotation
 
-- [ ] Complete the preparation phase.
-- [ ] Add exact public status, governance, approval, operation, backup, trust,
-      bootstrap, and restore response types.
-- [ ] Add boundary parsers and type fixtures.
-- [ ] Add canonical recovery artifact, certificate, trust-snapshot, local-key,
-      and import-envelope fixtures.
+- [ ] Add redacted status/progress contracts over R120's authoritative lifecycle.
+- [ ] Add server-verified fresh step-up to the existing refresh route; retain
+      tenant scoping, operation replay, concurrency rejection, and hourly limit.
+- [ ] Add durable dispatch/resumption and status polling for that operation.
+- [ ] Add the route, sidebar, status page, confirmation, cooldown, progress,
+      retry, and redacted receipts using existing dashboard components.
+- [ ] Demonstrate an authorized rotation, reload/retry continuity, cooldown,
+      tenant isolation, and normal signing. Verify keyboard and narrow layouts
+      for the delivered flow; keep recovery controls out until implemented.
 
-### Phase 2: expose control-plane operations
+### Phase 2: ship tenant recovery backups
 
-- [ ] Add redacted status and job APIs.
-- [ ] Add rotation authorization and idempotent job creation.
-- [ ] Replace generic approval reuse with the exact tenant-root operation union,
-      server step-up evidence, actor separation, and transactional consumption.
-- [ ] Add recovery governance, encrypted recipient challenge, and pair commit.
-- [ ] Add atomic recovery-set replacement, separate download capabilities, and
-      issued/durable evidence.
-- [ ] Add empty-destination bootstrap sessions, restore sessions, and role import
-      endpoints.
-- [ ] Add audit and observability events.
+- [ ] Provision role/set-isolated retention keys and establish their cost,
+      replacement, and destruction behavior separately from managed KMS backups.
+- [ ] Add recovery governance, server step-up, exact one-use approvals with
+      actor separation, encrypted recipient challenges, and pair commit.
+- [ ] Reuse native recovery artifacts; complete certificate/trust verification
+      and the canonical fixtures required to issue and verify real packages.
+- [ ] Add atomic recovery-set creation/replacement, separate download
+      capabilities, public manifest, cleanup, and redacted audit events.
+- [ ] Add dashboard enrollment/download flows and accurate governance, trust,
+      and browser download-issued labels. Prove one complete backup path.
 
-### Phase 3: ship backup CLI
+### Phase 3: implement native CLI and source-independent restore
 
-- [ ] Add the native Rust `seams` binary and `encrypted_file_v1` provider.
-- [ ] Add CLI authentication and selected-environment resolution.
-- [ ] Add status and rotation commands.
-- [ ] Add safe three-file download with public verification.
-- [ ] Add offline verification and machine-readable output.
-- [ ] Add filesystem, redaction, interruption, and exit-code tests.
-- [ ] Publish signed cross-platform release assets, checksums, SBOM, source
-      revision, and minimum protocol version.
+- [ ] Add the native Rust `seams` binary, `encrypted_file_v1`, authentication,
+      selected-environment resolution, and status/rotation commands.
+- [ ] Add one-role downloads, manifest/offline verification, durable file
+      evidence, JSON results, and focused file/secret/interruption checks.
+- [ ] Add empty-destination bootstrap/session APIs, separate role import keys
+      and capabilities, role-local CLI opening, and destination resealing.
+- [ ] Verify identity/root continuity, forward-refresh, activate, and destroy
+      bootstrap credentials, imported shares, and import keys with exact
+      cleanup-incomplete states.
+- [ ] Add dashboard restore orchestration and CLI instructions; show source
+      disposition and `tenant_held_external` state accurately.
+- [ ] Demonstrate restore with the source unavailable, then a second destination
+      with a distinct replay-isolated lineage.
 
-### Phase 4: add the dashboard page
+### Phase 4: release recovery tooling and finish remaining operations
 
-- [ ] Add the route, sidebar item, page, and API client.
-- [ ] Render operational-share status and rotation explanation.
-- [ ] Add rotation confirmation, live progress, retry, and receipts.
-- [ ] Add recovery-recipient and separate download flows.
-- [ ] Show governance, issued versus durable download evidence, current trust
-      level, and `tenant_held_external` recovery state.
-- [ ] Add restore-session orchestration and role-specific CLI instructions.
-- [ ] Complete accessibility and narrow-layout verification.
-
-### Phase 5: ship source-independent restore
-
-- [ ] Add role-specific CLI opening and destination resealing.
-- [ ] Add separate A/B restore capability and actor handling.
-- [ ] Add bootstrap authority, exact import AAD, continuity verification, forward
-      refresh, activation, credential destruction, and cleanup.
-- [ ] Run the restore drill with the source network and credentials unavailable.
-- [ ] Run retained-source and verified-source-retirement drills and verify their
-      security claims remain distinct.
-- [ ] Restore the same artifacts twice and prove destination lineage isolation.
-- [ ] Publish the tenant recovery runbook and artifact-storage guidance.
+- [ ] Publish signed cross-platform CLI assets, checksums, SBOM, source revision,
+      minimum protocol version, and explicit trust-update support.
+- [ ] Run retained-source and explicit verified-retirement drills, trust
+      revocation, interrupted-download, and cleanup-failure checks against the
+      implemented paths. Preserve unverified branches when evidence is absent.
+- [ ] Implement and demonstrate the fixed 30-day scheduled rotation with
+      24-hour jitter through the existing protocol; then expose its next run.
+- [ ] Complete accessibility checks for recovery flows and publish concise
+      recovery and artifact-storage guidance.
+- [ ] Hand R122 the implemented CLI entry point, redacted status/operation
+      contracts, canonical recovery fixtures, and demonstrated empty-destination
+      restore boundary. Record the R122 assumptions above for reconciliation;
+      no portability capsule, deployment compiler, or cutover implementation
+      belongs in this checkpoint.
 
 ## Definition of Done
 
@@ -1363,9 +1420,10 @@ Refactor 121 is complete when:
 
 ## Remaining Evidence Gates
 
-There are no open first-release product-policy decisions in this plan. Phase 1
-still waits for the canonical Rust fixtures, exhaustive types, approval red
-tests, boundary inventory, and CLI filesystem/key vectors named above.
+Phase 1 can start with R120's existing operational path. Recovery retention-key
+provisioning and cost must be resolved for Phase 2. CLI, trust, and restore
+contracts are implemented and verified with their own checkpoints; they do not
+delay the rotation page.
 
 Release still requires successful source-offline, clone-isolation,
 retained-source, verified-retirement, trust-revocation, interrupted-download,
