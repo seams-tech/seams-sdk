@@ -37,70 +37,51 @@ import type {
   WalletAuthenticationState,
 } from '../../packages/wallet/src/core/types/seams';
 import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
-import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import { isPlainObject } from '../../packages/shared-ts/src/utils/validation';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '../../packages/shared-ts/src/utils/domainIds';
-import {
-  routerAbMpcMaterialActivationRefFromWire,
-  routerAbMpcMaterialActivationRefToWire,
-} from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
+import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import type { WalletCustodyEvmFamilyPublicFacts } from '../../packages/shared-ts/src/passkey-custody/ceremonyCommitPayload';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import {
-  parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
-} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseWalletSessionAuthorizationId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import {
-  buildMpcMaterialActivationRefFixture,
-  buildWalletAuthAuthorityRefForAuthorityFixture,
-} from './helpers/ecdsaMaterialRef.fixtures';
+import { buildWalletAuthAuthorityRefForAuthorityFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { ecdsaCapabilityActivationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import {
   buildLinkedDeviceManagementAuthorityFixture,
   fullOwnerPermissionsForManagementFixture,
 } from './helpers/linkedDeviceManagement.fixtures';
-import { rawPasskeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
+import {
+  RP_ID,
+  ROOT_SHARE_EPOCH,
+  OPERATION_CREDENTIAL_TOKEN,
+  DISCOVERED_WALLET_ID,
+  NEAR_ACCOUNT_ID,
+  NEAR_SIGNING_KEY_ID,
+  CREDENTIAL_ID,
+  SIGNER_SLOT,
+  THRESHOLD_SESSION_ID,
+  WALLET_SESSION_ID,
+  WALLET_SESSION_QUOTA_ID,
+  REGISTERED_PUBLIC_KEY,
+  OPERATIONAL_PUBLIC_KEY,
+  MATERIAL_ACTIVATION,
+  walletBinding,
+  registrationAdmissionRequest,
+  buildSyncVerifyResponseFixture,
+} from './helpers/syncAccountResponse.fixtures';
 
 const RELAYER_URL = 'https://router.example.test';
-const RP_ID = 'wallet.example.test';
-const DISCOVERED_WALLET_ID = 'discovered-wallet';
 const REQUESTED_WALLET_ID = 'requested-wallet';
 const OTHER_CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(37));
-const NEAR_ACCOUNT_ID = 'discovered-wallet.testnet';
-const NEAR_SIGNING_KEY_ID = 'ed25519ks_discovered_wallet';
-const CREDENTIAL_ID = base64UrlEncode(new Uint8Array(32).fill(36));
-const SIGNER_SLOT = 3;
-const THRESHOLD_SESSION_ID = 'threshold-session-sync-1';
-const WALLET_SESSION_ID = 'wallet-session-sync-1';
-const WALLET_SESSION_QUOTA_ID = mpcWalletSigningQuotaId('wallet-session-quota-sync-1');
-const OPERATION_CREDENTIAL_TOKEN = `wst_${base64UrlEncode(new Uint8Array(32).fill(88))}`;
-const SIGNING_WORKER_ID = 'signing-worker-sync-1';
-const ROOT_SHARE_EPOCH = 'root-share-epoch-sync-1';
-const REGISTERED_PUBLIC_KEY = new Uint8Array(32).fill(21);
-const OPERATIONAL_PUBLIC_KEY = `ed25519:${base58Encode(REGISTERED_PUBLIC_KEY)}`;
 const PRF_FIRST = new Uint8Array(32).fill(77);
 const PRF_FIRST_B64U = base64UrlEncode(PRF_FIRST);
-const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
-  'sync-account-yao',
-  DISCOVERED_WALLET_ID,
-  SIGNING_WORKER_ID,
-  NEAR_SIGNING_KEY_ID,
-);
-
-function mpcWalletSigningQuotaId(value: string) {
-  const parsed = parseMpcWalletSigningQuotaId(value);
-  if (!parsed.ok) throw new Error(parsed.error.message);
-  return parsed.value;
-}
 
 type MockActiveClient = RouterAbEd25519YaoSealableActiveClientV1;
 
@@ -427,17 +408,6 @@ function passkeyCredential(): WebAuthnAuthenticationCredential {
   };
 }
 
-function walletBinding(walletId: string): Record<string, unknown> {
-  return {
-    walletId,
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    rpId: RP_ID,
-    credentialIdB64u: CREDENTIAL_ID,
-    signerSlot: SIGNER_SLOT,
-  };
-}
-
 function syncOptionsResponse(
   scenario: FetchScenario,
   requestedWalletId: string | null,
@@ -546,8 +516,6 @@ async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<strin
     verifier: { kind: 'webauthn', rpId: founding.authMethod.rpId },
     bindingId: founding.authMethod.walletAuthMethodId,
   });
-  const admissionRequest = registrationAdmissionRequest(walletId);
-  const admissionReceipt = registrationAdmissionReceipt(walletId);
   const authorizationId = parseWalletSessionAuthorizationId(
     'authorization:sync-account-orchestration',
   );
@@ -585,109 +553,14 @@ async function syncVerifyResponse(scenario: FetchScenario): Promise<Record<strin
     issuedAtMs: Date.now() - 1_000,
     expiresAtMs,
   });
-  const response: Record<string, unknown> = {
-    ok: true,
-    verified: true,
+  const response = buildSyncVerifyResponseFixture({
     walletId,
-    nearAccountId: NEAR_ACCOUNT_ID,
-    nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-    signerSlot: SIGNER_SLOT,
-    publicKey: OPERATIONAL_PUBLIC_KEY,
-    credentialIdB64u: CREDENTIAL_ID,
-    credentialPublicKeyB64u: founding.authMethod.credentialPublicKeyB64u,
-    walletBinding: walletBinding(walletId),
-    walletAuthMethodId: String(founding.authMethod.walletAuthMethodId),
-    walletAuthorityId: String(founding.authority.authorityId),
-    foundingAuthority: founding.authority,
-    foundingAuthMethod: founding.authMethod,
-    thresholdEd25519: {
-      relayerKeyId: SIGNING_WORKER_ID,
-      keyVersion: 'key-version-sync-1',
-      participantIds: [1, 2],
-      session: {
-        walletId,
-        nearAccountId: NEAR_ACCOUNT_ID,
-        nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
-        thresholdSessionId: THRESHOLD_SESSION_ID,
-        walletSessionId: WALLET_SESSION_ID,
-        quotaId: WALLET_SESSION_QUOTA_ID,
-        expiresAtMs,
-        remainingUses: 4,
-        runtimePolicyScope: {
-          orgId: 'org-sync',
-          projectId: 'project-sync',
-          envId: 'test',
-          signingRootVersion: ROOT_SHARE_EPOCH,
-        },
-        routerAbNormalSigning: {
-          kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
-          signingWorkerId: SIGNING_WORKER_ID,
-        },
-      },
-    },
+    founding,
     walletSession,
-    operationCredential: {
-      kind: 'opaque_wallet_session_operation_credential_v1',
-      token: OPERATION_CREDENTIAL_TOKEN,
-      walletSessionId: WALLET_SESSION_ID,
-    },
-    ed25519YaoRecovery: {
-      kind: 'router_ab_ed25519_yao_sync_recovery_v1',
-      authorityRef,
-      capability: {
-        kind: 'router_ab_ed25519_yao_active_capability_v1',
-        materialActivation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
-        activeCapabilityBinding: new Array<number>(32).fill(8),
-        registeredPublicKey: [...REGISTERED_PUBLIC_KEY],
-        nearAccountId: NEAR_ACCOUNT_ID,
-        applicationBinding: {
-          wallet_id: walletId,
-          near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
-          signing_root_id: 'project-sync:test',
-          key_creation_signer_slot: SIGNER_SLOT,
-        },
-        participantIds: [1, 2],
-        runtimePolicyScope: {
-          orgId: 'org-sync',
-          projectId: 'project-sync',
-          envId: 'test',
-          signingRootVersion: ROOT_SHARE_EPOCH,
-        },
-        lifecycle: {
-          lifecycleId: 'sync-account-orchestration-lifecycle',
-          rootShareEpoch: ROOT_SHARE_EPOCH,
-          accountId: walletId,
-          thresholdSessionId: THRESHOLD_SESSION_ID,
-          signerSetId: 'signer-set-sync-1',
-          signingWorkerId: SIGNING_WORKER_ID,
-        },
-        stateEpoch: 1,
-        registrationContinuity: {
-          kind: 'registration',
-          admissionRequest,
-          admissionReceipt,
-          activationTranscript: new Array<number>(32).fill(11),
-        },
-      },
-    },
-    walletCustody: {
-      kind: 'wallet_custody_sync_bootstrap_v1',
-      envelope: rawPasskeyCustodyEnvelope({
-        walletId,
-        factor: {
-          kind: 'passkey',
-          rpId: RP_ID,
-          credentialIdB64u: CREDENTIAL_ID,
-          kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
-        },
-      }),
-      storeVersion: 'custody-store-version-1',
-    },
-    ecdsaCustody: {
-      kind: 'wallet_custody_ecdsa_sync_continuity_v1',
-      signers: ecdsaSigners,
-    },
-  };
+    authorityRef,
+    expiresAtMs,
+    ecdsaSigners,
+  });
   if (ecdsaResponse) {
     if (scenario.ecdsaSessionAuthorizationId) {
       if (!isPlainObject(ecdsaResponse.ecdsaSession.session)) {
@@ -711,54 +584,6 @@ function ecdsaSessionMaterialActivationForSync(
   return isPlainObject(materialActivation)
     ? routerAbMpcMaterialActivationRefFromWire(materialActivation)
     : null;
-}
-
-function registrationAdmissionRequest(walletId: string) {
-  return {
-    scope: {
-      lifecycle_id: 'sync-account-orchestration-lifecycle',
-      root_share_epoch: ROOT_SHARE_EPOCH,
-      account_id: walletId,
-      threshold_session_id: THRESHOLD_SESSION_ID,
-      signer_set_id: 'signer-set-sync-1',
-      signing_worker_id: SIGNING_WORKER_ID,
-      material_activation: routerAbMpcMaterialActivationRefToWire(MATERIAL_ACTIVATION),
-    },
-    application_binding: {
-      wallet_id: walletId,
-      near_ed25519_signing_key_id: NEAR_SIGNING_KEY_ID,
-      signing_root_id: 'project-sync:test',
-      key_creation_signer_slot: SIGNER_SLOT,
-    },
-    participant_ids: [1, 2] as const,
-  };
-}
-
-function registrationAdmissionReceipt(walletId: string) {
-  const request = registrationAdmissionRequest(walletId);
-  return {
-    binding: {
-      lifecycle: {
-        lifecycle_id: request.scope.lifecycle_id,
-        work_kind: 'registration_prepare',
-        primitive_request_kind: 'registration',
-        root_share_epoch: request.scope.root_share_epoch,
-        account_id: request.scope.account_id,
-        session_id: request.scope.threshold_session_id,
-        signer_set_id: request.scope.signer_set_id,
-        selected_server_id: request.scope.signing_worker_id,
-      },
-      operation: 'registration',
-      session_id: new Array<number>(32).fill(8),
-      stable_key_context_binding: new Array<number>(32).fill(9),
-      material_activation: request.scope.material_activation,
-    },
-    keyset: {
-      deriver_a_input_public_key: new Array<number>(32).fill(1),
-      deriver_b_input_public_key: new Array<number>(32).fill(2),
-      signing_worker_recipient_public_key: new Array<number>(32).fill(3),
-    },
-  };
 }
 
 function requireRequestJson(init: RequestInit | undefined): Record<string, unknown> {

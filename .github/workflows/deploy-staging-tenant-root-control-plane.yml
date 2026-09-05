@@ -95,6 +95,8 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
       - name: Install deployment dependencies
         run: pnpm install --frozen-lockfile --filter router-ab-cloudflare
+      - name: Install worker-build
+        run: pnpm -C crates/router-ab-cloudflare run worker-build:install
       - name: Build tenant-root-control-plane Worker
         run: pnpm -C crates/router-ab-cloudflare run build:tenant-root-control-plane
         env:

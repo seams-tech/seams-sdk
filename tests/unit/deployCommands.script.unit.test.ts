@@ -336,6 +336,35 @@ test('deployment key generation provisions distinct role-local tenant-root provi
   }
 });
 
+test('production manifests use external KMS backups and distribute both envelope public keys', () => {
+  const result = runCommand(environmentGeneratorScript, ['--lane', 'production-mainnet', '--json']);
+  expect(result.status, result.stderr).toBe(0);
+  const output = JSON.parse(result.stdout);
+  const router = output.environments['production-mpc-router'];
+  for (const role of ['A', 'B']) {
+    const environment = output.environments[`production-deriver-${role.toLowerCase()}`];
+    const prefix = `DERIVER_${role}_TENANT_ROOT_MANAGED_BACKUP`;
+    expect(environment.variables[`ROUTER_AB_${prefix}_PROVIDER_ID`]).toBe(
+      `google-cloud-kms-deriver-${role.toLowerCase()}-v1`,
+    );
+    expect(environment.variables[`ROUTER_AB_${prefix}_KEY_VERSION`]).toBeTruthy();
+    expect(environment.secrets[`${prefix}_GOOGLE_CREDENTIALS_JSON`]).toBeTruthy();
+    expect(environment.secrets[`${prefix}_HPKE_PRIVATE_KEY`]).toBeUndefined();
+    expect(environment.variables[`ROUTER_AB_${prefix}_HPKE_PUBLIC_KEY`]).toBeUndefined();
+    for (const peer of ['A', 'B']) {
+      const name = `ROUTER_AB_DERIVER_${peer}_ENVELOPE_HPKE_PUBLIC_KEY`;
+      expect(environment.variables[name]).toBe(router.variables[name]);
+      expect(environment.variables[name]).toMatch(/^x25519:[0-9a-f]{64}$/u);
+    }
+  }
+  const apply = runCommand(deploymentKeyGeneratorScript, [
+    '--lane',
+    'production-mainnet',
+    '--apply',
+  ]);
+  expectFailure(apply, /per-Worker manifests/u);
+});
+
 test('deployment key generation provisions one tenant-root control-plane issuer key', () => {
   const result = runCommand(deploymentKeyGeneratorScript, [
     '--lane',
@@ -381,22 +410,6 @@ test('deployment key generation provisions one tenant-root control-plane issuer 
       },
     ),
   ).not.toThrow();
-  // --apply must not place these: it targets one generic environment, while the
-  // issuer seed belongs only in *-tenant-root-control-plane.
-  const notApplied = (JSON.parse(result.stdout) as { readonly notApplied: readonly string[] })
-    .notApplied;
-  // Every R120 role-local value: the Deriver role creation keys and the issuer
-  // key, variables first then secrets, exactly as the generator orders them.
-  expect(notApplied).toEqual([
-    'ROUTER_AB_DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-    'ROUTER_AB_DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-    'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
-    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY_ID',
-    'ROUTER_AB_TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
-    'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
-    'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
-    'TENANT_ROOT_CONTROL_PLANE_ISSUER_SIGNING_KEY',
-  ]);
 
   // The grant authority is external: this command must not be able to mint one.
   const notGenerated = (JSON.parse(result.stdout) as { readonly notGenerated: readonly string[] })
@@ -431,7 +444,6 @@ test('deployment key generation provisions role-local Deriver creation signing k
   const output = JSON.parse(result.stdout) as {
     readonly variables: Readonly<Record<string, string>>;
     readonly secrets: Readonly<Record<string, string>>;
-    readonly notApplied: readonly string[];
   };
   const keySet = JSON.parse(
     output.variables.ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON,
@@ -498,14 +510,6 @@ test('deployment key generation provisions role-local Deriver creation signing k
     ).keys[0].verifying_key_hex,
   ]);
   expect(allPublic.size).toBe(5);
-  // Role-local: never applied by this single-environment script.
-  expect(output.notApplied).toEqual(
-    expect.arrayContaining([
-      'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
-      'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
-      'ROUTER_AB_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
-    ]),
-  );
   // A's key cannot be selected as B's active role key.
   expect(() =>
     assertEd25519RoleKeySet(

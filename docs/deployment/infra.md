@@ -369,15 +369,24 @@ Generate deployment identity keys with:
 
 ```bash
 pnpm router:deploy:keygen -- --lane staging-testnet
-pnpm router:deploy:keygen -- --lane staging-testnet --apply
 ```
 
-The command generates Deriver A/B envelope HPKE keys, Deriver A/B peer-message
-signing keys, and the SigningWorker server-output HPKE key. It does not
-generate `DERIVER_A_ROOT_SHARE_WIRE_SECRET` or
-`DERIVER_B_ROOT_SHARE_WIRE_SECRET`; those values come from the
-derivation/provisioning ceremony. By default the command redacts private values
-in stdout; use `--show-secrets` only for manual secret entry.
+The command generates deployment envelope, peer-signing, private-D1, online
+wrapping, tenant-root creation, and control-plane issuer keys. Tenant secrets
+are created by the server-owned R120 ceremony. Both Derivers and the Router
+receive both envelope public keys; private keys remain role-local.
+
+Use `wallet-core:deploy:env-prepare` and `wallet-core:deploy:env-apply` to generate
+and apply per-Worker manifests. The low-level key generator never uploads keys.
+Every prepare generates fresh identities; preserve existing manifests when
+repairing missing environment values.
+
+Production manifests require separate A/B Google KMS key-version references
+(`ROUTER_AB_DERIVER_{A,B}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION`) and service-account
+credentials (`DERIVER_{A,B}_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON`)
+through the protected values file. KMS wrapping keys are provisioned externally.
+Staging retains the operational HPKE backup provider. Private output is redacted
+unless `--show-secrets` is supplied.
 
 Generate matched Router A/B root-share wire secrets with:
 
