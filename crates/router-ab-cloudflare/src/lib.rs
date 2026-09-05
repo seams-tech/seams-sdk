@@ -105,6 +105,8 @@ pub use tenant_root_control_plane::{
 };
 #[allow(dead_code)]
 mod tenant_root_role_runtime;
+#[cfg(feature = "workers-rs")]
+mod tenant_root_google_kms;
 pub use tenant_root_cutover_lifecycle::*;
 #[cfg(feature = "workers-rs")]
 use tenant_root_role_runtime::{

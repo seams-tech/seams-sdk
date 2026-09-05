@@ -191,6 +191,9 @@ pub const DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
 /// Deriver A tenant-root managed-backup provider identifier env key.
 pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID_ENV: &str =
     "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID";
+/// Provider selector for Deriver A's role-local Google Cloud KMS key.
+pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1: &str =
+    "google-cloud-kms-deriver-a-v1";
 /// Deriver A tenant-root managed-backup key-version env key.
 pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV: &str =
     "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION";
@@ -200,6 +203,9 @@ pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV: &str =
 /// Deriver A tenant-root managed-backup HPKE private-key Secret binding-name env key.
 pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
     "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING";
+/// Deriver A Google service-account credentials JSON Secret binding-name env key.
+pub const DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV: &str =
+    "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING";
 /// Deriver B tenant-root online epoch wrapping-key reference env key.
 pub const DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV: &str =
     "DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF";
@@ -212,6 +218,9 @@ pub const DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
 /// Deriver B tenant-root managed-backup provider identifier env key.
 pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID_ENV: &str =
     "DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID";
+/// Provider selector for Deriver B's role-local Google Cloud KMS key.
+pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1: &str =
+    "google-cloud-kms-deriver-b-v1";
 /// Deriver B tenant-root managed-backup key-version env key.
 pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV: &str =
     "DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION";
@@ -221,6 +230,9 @@ pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV: &str =
 /// Deriver B tenant-root managed-backup HPKE private-key Secret binding-name env key.
 pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
     "DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING";
+/// Deriver B Google service-account credentials JSON Secret binding-name env key.
+pub const DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV: &str =
+    "DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING";
 /// Maximum random bytes a single Deriver-host preload may request.
 pub const CLOUDFLARE_DERIVER_HOST_RANDOM_PRELOAD_MAX_BYTES_V1: usize = 65_536;
 /// Versioned text prefix for a role-local signer-envelope HPKE private key.
@@ -269,6 +281,7 @@ pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -276,6 +289,7 @@ pub(crate) const TENANT_ROOT_CONTROL_PLANE_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
 ];
 pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
@@ -305,6 +319,7 @@ pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -312,6 +327,7 @@ pub(crate) const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
 ];
 pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
     OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
@@ -335,6 +351,7 @@ pub(crate) const DERIVER_A_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_BINDING_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_OBJECT_ENV,
     SIGNING_WORKER_PRESIGN_SESSION_DO_KEY_PREFIX_ENV,
@@ -367,6 +384,7 @@ pub(crate) const DERIVER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
 ];
 pub(crate) const SIGNING_WORKER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     OPERATIONS_INCIDENT_VERIFYING_KEY_HEX_ENV,
@@ -397,6 +415,7 @@ pub(crate) const SIGNING_WORKER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
@@ -404,6 +423,7 @@ pub(crate) const SIGNING_WORKER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
     DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+    DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
 ];
 
 const CLOUDFLARE_X25519_PUBLIC_KEY_PREFIX_V1: &str = "x25519:";
@@ -416,11 +436,24 @@ pub(crate) struct CloudflareTenantRootOperationalRotationProviderConfigV1 {
     online_public_key: String,
     online_public_key_bytes: [u8; 32],
     online_secret_binding_name: String,
-    backup_provider_id: String,
-    backup_key_version: String,
-    backup_public_key: String,
-    backup_public_key_bytes: [u8; 32],
-    backup_secret_binding_name: String,
+    managed_backup: CloudflareTenantRootManagedBackupProviderConfigV1,
+}
+
+/// The explicit managed-backup implementations supported by this Worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CloudflareTenantRootManagedBackupProviderConfigV1 {
+    CloudflareHpke {
+        provider_id: String,
+        key_version: String,
+        public_key: String,
+        public_key_bytes: [u8; 32],
+        secret_binding_name: String,
+    },
+    GoogleCloudKms {
+        provider_id: String,
+        key_version: String,
+        credentials_secret_binding_name: String,
+    },
 }
 
 impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
@@ -445,41 +478,81 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
             online_public_key,
             online_public_key_bytes,
             online_secret_binding_name,
-            backup_provider_id,
-            backup_key_version,
-            backup_public_key,
-            backup_public_key_bytes,
-            backup_secret_binding_name,
+            managed_backup: CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                provider_id: backup_provider_id,
+                key_version: backup_key_version,
+                public_key: backup_public_key,
+                public_key_bytes: backup_public_key_bytes,
+                secret_binding_name: backup_secret_binding_name,
+            },
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    fn new_google_cloud_kms(
+        role: TwoPartyDeriverRole,
+        online_epoch_wrapping_key_ref: String,
+        online_public_key: String,
+        online_secret_binding_name: String,
+        backup_provider_id: String,
+        backup_key_version: String,
+        credentials_secret_binding_name: String,
+    ) -> RouterAbProtocolResult<Self> {
+        let expected_provider_id = match role {
+            TwoPartyDeriverRole::DeriverA => {
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1
+            }
+            TwoPartyDeriverRole::DeriverB => {
+                DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1
+            }
+        };
+        if backup_provider_id != expected_provider_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "tenant-root Google Cloud KMS provider id does not match this role",
+            ));
+        }
+        let online_public_key_bytes =
+            decode_cloudflare_tenant_root_operational_hpke_public_key_v1(&online_public_key)?;
+        let config = Self {
+            role,
+            online_epoch_wrapping_key_ref,
+            online_public_key,
+            online_public_key_bytes,
+            online_secret_binding_name,
+            managed_backup: CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                provider_id: backup_provider_id,
+                key_version: backup_key_version,
+                credentials_secret_binding_name,
+            },
         };
         config.validate()?;
         Ok(config)
     }
 
     fn validate(&self) -> RouterAbProtocolResult<()> {
-        for (field, value) in [
-            (
-                "tenant-root online epoch wrapping-key reference",
-                self.online_epoch_wrapping_key_ref(),
-            ),
-            (
-                "tenant-root managed-backup provider id",
-                self.backup_provider_id(),
-            ),
-            (
-                "tenant-root managed-backup key version",
-                self.backup_key_version(),
-            ),
-        ] {
-            validate_operational_descriptor(field, value)?;
-        }
+        validate_operational_descriptor(
+            "tenant-root online epoch wrapping-key reference",
+            self.online_epoch_wrapping_key_ref(),
+        )?;
         validate_operational_secret_binding_name(self.role(), self.online_secret_binding_name())?;
-        validate_operational_secret_binding_name(self.role(), self.backup_secret_binding_name())?;
-        if self.online_secret_binding_name == self.backup_secret_binding_name {
+        if decode_cloudflare_tenant_root_operational_hpke_public_key_v1(self.online_public_key())?
+            != self.online_public_key_bytes
+        {
             return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-                "tenant-root online and managed-backup Secret bindings must be distinct",
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "tenant-root operational public-key descriptor is inconsistent",
             ));
         }
+        validate_operational_descriptor(
+            "tenant-root managed-backup provider id",
+            self.backup_provider_id(),
+        )?;
+        validate_operational_descriptor(
+            "tenant-root managed-backup key version",
+            self.backup_key_version(),
+        )?;
         if self.online_epoch_wrapping_key_ref() == self.backup_provider_id()
             || self.online_epoch_wrapping_key_ref() == self.backup_key_version()
             || self.backup_provider_id() == self.backup_key_version()
@@ -489,22 +562,51 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
                 "tenant-root operational provider descriptors must be distinct",
             ));
         }
-        if self.online_public_key_bytes == self.backup_public_key_bytes {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root online and managed-backup public keys must be distinct",
-            ));
-        }
-        if decode_cloudflare_tenant_root_operational_hpke_public_key_v1(self.online_public_key())?
-            != self.online_public_key_bytes
-            || decode_cloudflare_tenant_root_operational_hpke_public_key_v1(
-                self.backup_public_key(),
-            )? != self.backup_public_key_bytes
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "tenant-root operational public-key descriptor is inconsistent",
-            ));
+        match &self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                public_key,
+                public_key_bytes,
+                secret_binding_name,
+                ..
+            } => {
+                validate_operational_secret_binding_name(self.role(), secret_binding_name)?;
+                if self.online_secret_binding_name == *secret_binding_name {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                        "tenant-root online and managed-backup Secret bindings must be distinct",
+                    ));
+                }
+                if self.online_public_key_bytes == *public_key_bytes {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "tenant-root online and managed-backup public keys must be distinct",
+                    ));
+                }
+                if decode_cloudflare_tenant_root_operational_hpke_public_key_v1(public_key)?
+                    != *public_key_bytes
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "tenant-root operational public-key descriptor is inconsistent",
+                    ));
+                }
+            }
+            CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                credentials_secret_binding_name,
+                ..
+            } => {
+                validate_operational_secret_binding_name(
+                    self.role(),
+                    credentials_secret_binding_name,
+                )?;
+                if self.online_secret_binding_name == *credentials_secret_binding_name {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                        "tenant-root online and managed-backup Secret bindings must be distinct",
+                    ));
+                }
+                validate_google_cloud_kms_key_version_v1(self.backup_key_version())?;
+            }
         }
         Ok(())
     }
@@ -526,17 +628,41 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
 
     /// Returns the managed-backup provider id descriptor.
     pub(crate) fn backup_provider_id(&self) -> &str {
-        &self.backup_provider_id
+        match &self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                provider_id,
+                ..
+            }
+            | CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                provider_id,
+                ..
+            } => provider_id,
+        }
     }
 
     /// Returns the managed-backup key version descriptor.
     pub(crate) fn backup_key_version(&self) -> &str {
-        &self.backup_key_version
+        match &self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                key_version,
+                ..
+            }
+            | CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                key_version,
+                ..
+            } => key_version,
+        }
     }
 
     /// Returns the managed-backup HPKE public-key descriptor.
-    pub(crate) fn backup_public_key(&self) -> &str {
-        &self.backup_public_key
+    pub(crate) fn backup_public_key(&self) -> Option<&str> {
+        match &self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                public_key,
+                ..
+            } => Some(public_key),
+            CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms { .. } => None,
+        }
     }
 
     /// Returns the online Secret binding name.
@@ -546,7 +672,20 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
 
     /// Returns the managed-backup Secret binding name.
     pub(crate) fn backup_secret_binding_name(&self) -> &str {
-        &self.backup_secret_binding_name
+        match &self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                secret_binding_name,
+                ..
+            } => secret_binding_name,
+            CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                credentials_secret_binding_name,
+                ..
+            } => credentials_secret_binding_name,
+        }
+    }
+
+    pub(crate) fn managed_backup(&self) -> &CloudflareTenantRootManagedBackupProviderConfigV1 {
+        &self.managed_backup
     }
 
     #[cfg(feature = "workers-rs")]
@@ -555,15 +694,34 @@ impl CloudflareTenantRootOperationalRotationProviderConfigV1 {
         online_secret_bytes: Zeroizing<Vec<u8>>,
         backup_secret_bytes: Zeroizing<Vec<u8>>,
     ) -> CloudflareTenantRootOperationalRotationProviderInputsV1 {
-        CloudflareTenantRootOperationalRotationProviderInputsV1::new(
+        let backup = match self.managed_backup {
+            CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke {
+                provider_id,
+                key_version,
+                public_key_bytes,
+                ..
+            } => crate::tenant_root_operational_provider::CloudflareTenantRootManagedBackupProviderInputsV1::CloudflareHpke {
+                provider_id,
+                key_version,
+                public_key_bytes,
+                secret_bytes: backup_secret_bytes,
+            },
+            CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms {
+                provider_id,
+                key_version,
+                ..
+            } => crate::tenant_root_operational_provider::CloudflareTenantRootManagedBackupProviderInputsV1::GoogleCloudKms {
+                provider_id,
+                key_version,
+                credentials_json: backup_secret_bytes,
+            },
+        };
+        CloudflareTenantRootOperationalRotationProviderInputsV1::new_with_managed_backup(
             self.role,
             self.online_epoch_wrapping_key_ref,
             self.online_public_key_bytes,
             online_secret_bytes,
-            self.backup_provider_id,
-            self.backup_key_version,
-            self.backup_public_key_bytes,
-            backup_secret_bytes,
+            backup,
         )
     }
 }
@@ -582,6 +740,7 @@ pub(crate) fn parse_cloudflare_tenant_root_operational_rotation_provider_config_
         backup_version_key,
         backup_public_key_key,
         backup_secret_binding_key,
+        backup_google_credentials_binding_key,
         forbidden_keys,
     ) = match worker_role {
         CloudflareWorkerRoleV1::DeriverA => (
@@ -593,6 +752,7 @@ pub(crate) fn parse_cloudflare_tenant_root_operational_rotation_provider_config_
             DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
             DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
             DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+            DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
             DERIVER_A_FORBIDDEN_ENV_KEYS,
         ),
         CloudflareWorkerRoleV1::DeriverB => (
@@ -604,6 +764,7 @@ pub(crate) fn parse_cloudflare_tenant_root_operational_rotation_provider_config_
             DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
             DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY_ENV,
             DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING_ENV,
+            DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
             DERIVER_B_FORBIDDEN_ENV_KEYS,
         ),
         CloudflareWorkerRoleV1::Router
@@ -616,16 +777,42 @@ pub(crate) fn parse_cloudflare_tenant_root_operational_rotation_provider_config_
         }
     };
     crate::reject_forbidden_env_keys(worker_role, env, forbidden_keys)?;
-    let config = CloudflareTenantRootOperationalRotationProviderConfigV1::new(
-        role,
-        read_required_raw_env_text(env, online_ref_key)?,
-        read_required_raw_env_text(env, online_public_key_key)?,
-        read_required_tenant_root_identifier(env, online_secret_binding_key)?,
-        read_required_raw_env_text(env, backup_provider_key)?,
-        read_required_raw_env_text(env, backup_version_key)?,
-        read_required_raw_env_text(env, backup_public_key_key)?,
-        read_required_tenant_root_identifier(env, backup_secret_binding_key)?,
-    )?;
+    let online_epoch_wrapping_key_ref = read_required_raw_env_text(env, online_ref_key)?;
+    let online_public_key = read_required_raw_env_text(env, online_public_key_key)?;
+    let online_secret_binding_name =
+        read_required_tenant_root_identifier(env, online_secret_binding_key)?;
+    let backup_provider_id = read_required_raw_env_text(env, backup_provider_key)?;
+    let backup_key_version = read_required_raw_env_text(env, backup_version_key)?;
+    let config = if backup_provider_id
+        == match role {
+            TwoPartyDeriverRole::DeriverA => {
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1
+            }
+            TwoPartyDeriverRole::DeriverB => {
+                DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1
+            }
+        } {
+        CloudflareTenantRootOperationalRotationProviderConfigV1::new_google_cloud_kms(
+            role,
+            online_epoch_wrapping_key_ref,
+            online_public_key,
+            online_secret_binding_name,
+            backup_provider_id,
+            backup_key_version,
+            read_required_tenant_root_identifier(env, backup_google_credentials_binding_key)?,
+        )?
+    } else {
+        CloudflareTenantRootOperationalRotationProviderConfigV1::new(
+            role,
+            online_epoch_wrapping_key_ref,
+            online_public_key,
+            online_secret_binding_name,
+            backup_provider_id,
+            backup_key_version,
+            read_required_raw_env_text(env, backup_public_key_key)?,
+            read_required_tenant_root_identifier(env, backup_secret_binding_key)?,
+        )?
+    };
     reject_reused_operational_secret_bindings(env, &config)?;
     Ok(config)
 }
@@ -701,6 +888,46 @@ fn validate_operational_descriptor(field: &str, value: &str) -> RouterAbProtocol
         )));
     }
     Ok(())
+}
+
+pub(crate) fn validate_google_cloud_kms_key_version_v1(
+    key_version: &str,
+) -> RouterAbProtocolResult<()> {
+    validate_operational_descriptor("tenant-root Google Cloud KMS key version", key_version)?;
+    let parts: Vec<&str> = key_version.split('/').collect();
+    if parts.len() != 10
+        || parts[0] != "projects"
+        || parts[2] != "locations"
+        || parts[4] != "keyRings"
+        || parts[6] != "cryptoKeys"
+        || parts[8] != "cryptoKeyVersions"
+        || parts[1].is_empty()
+        || parts[3].is_empty()
+        || parts[5].is_empty()
+        || parts[7].is_empty()
+        || parts[9].is_empty()
+        || !parts[1..].iter().all(|part| {
+            part.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        })
+        || parts[9]
+            .parse::<u64>()
+            .ok()
+            .filter(|version| *version > 0)
+            .is_none()
+    {
+        return Err(invalid_operational_config(
+            "tenant-root Google Cloud KMS key version must be a full cryptoKeyVersion resource name",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn google_cloud_kms_crypto_key_from_version_v1(
+    key_version: &str,
+) -> RouterAbProtocolResult<String> {
+    validate_google_cloud_kms_key_version_v1(key_version)?;
+    Ok(key_version.split('/').take(8).collect::<Vec<_>>().join("/"))
 }
 
 /// Decodes one strict Cloudflare X25519 public-key descriptor.
@@ -796,10 +1023,20 @@ pub(crate) fn load_cloudflare_tenant_root_operational_rotation_provider_v1(
         env,
         config.online_secret_binding_name(),
     )?;
-    let backup_secret = load_cloudflare_tenant_root_operational_private_key_secret_v1(
-        env,
-        config.backup_secret_binding_name(),
-    )?;
+    let backup_secret = match config.managed_backup() {
+        CloudflareTenantRootManagedBackupProviderConfigV1::CloudflareHpke { .. } => {
+            load_cloudflare_tenant_root_operational_private_key_secret_v1(
+                env,
+                config.backup_secret_binding_name(),
+            )?
+        }
+        CloudflareTenantRootManagedBackupProviderConfigV1::GoogleCloudKms { .. } => {
+            load_cloudflare_tenant_root_managed_backup_google_credentials_json_secret_v1(
+                env,
+                config.backup_secret_binding_name(),
+            )?
+        }
+    };
     CloudflareTenantRootOperationalRotationProviderV1::from_inputs(
         config.into_provider_inputs(online_secret, backup_secret),
     )
@@ -821,6 +1058,28 @@ fn load_cloudflare_tenant_root_operational_private_key_secret_v1(
     })?;
     let secret_value = Zeroizing::new(secret.to_string());
     decode_cloudflare_tenant_root_operational_hpke_private_key_secret_v1(&secret_value)
+}
+
+#[cfg(feature = "workers-rs")]
+fn load_cloudflare_tenant_root_managed_backup_google_credentials_json_secret_v1(
+    env: &worker::Env,
+    binding_name: &str,
+) -> RouterAbProtocolResult<Zeroizing<Vec<u8>>> {
+    let secret = env.secret(binding_name).map_err(|err| {
+        crate::worker_binding_error(
+            crate::worker_binding_error_code(&err, binding_name),
+            binding_name,
+            "secret",
+            err,
+        )
+    })?;
+    let secret_value = Zeroizing::new(secret.to_string());
+    if secret_value.is_empty() {
+        return Err(invalid_operational_config(
+            "tenant-root Google service-account credentials Secret is empty",
+        ));
+    }
+    Ok(Zeroizing::new(secret_value.as_bytes().to_vec()))
 }
 
 #[cfg(feature = "workers-rs")]
@@ -3222,7 +3481,7 @@ mod tests {
                 operational_public_descriptor(0x21)
             );
             assert_eq!(
-                config.backup_public_key(),
+                config.backup_public_key().expect("HPKE backup key"),
                 operational_public_descriptor(0x31)
             );
             assert!(config
@@ -3232,6 +3491,51 @@ mod tests {
                 .backup_secret_binding_name()
                 .starts_with(worker_role.as_str().to_ascii_uppercase().as_str()));
         }
+    }
+
+    #[test]
+    fn operational_provider_config_accepts_role_local_google_kms_without_hpke_backup_fields() {
+        let online_public_key = operational_public_descriptor(0x21);
+        let key_version =
+            "projects/seams-501403/locations/global/keyRings/r120-production/cryptoKeys/deriver-a-backup/cryptoKeyVersions/1";
+        let env = CloudflareEnvMapV1::new(vec![
+            (
+                DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF_ENV,
+                "online-epoch-1".to_owned(),
+            ),
+            (
+                DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY_ENV,
+                online_public_key,
+            ),
+            (
+                DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING_ENV,
+                "DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY".to_owned(),
+            ),
+            (
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID_ENV,
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_PROVIDER_ID_V1.to_owned(),
+            ),
+            (
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION_ENV,
+                key_version.to_owned(),
+            ),
+            (
+                DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS_JSON_BINDING_ENV,
+                "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS".to_owned(),
+            ),
+        ]);
+        let config = parse_cloudflare_tenant_root_operational_rotation_provider_config_v1(
+            CloudflareWorkerRoleV1::DeriverA,
+            &env,
+        )
+        .expect("Google Cloud KMS provider config");
+        assert_eq!(config.backup_provider_id(), "google-cloud-kms-deriver-a-v1");
+        assert_eq!(config.backup_key_version(), key_version);
+        assert_eq!(config.backup_public_key(), None);
+        assert_eq!(
+            config.backup_secret_binding_name(),
+            "DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_GOOGLE_CREDENTIALS"
+        );
     }
 
     #[test]

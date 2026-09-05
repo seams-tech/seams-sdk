@@ -1525,6 +1525,7 @@ dependencies = [
  "threshold-prf",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "web-sys",
  "worker",
  "zeroize",
 ]

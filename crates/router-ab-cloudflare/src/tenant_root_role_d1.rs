@@ -8221,7 +8221,7 @@ fn tenant_root_creation_probe_verified_package(
 /// calls, so the probe exercises production admission, finalization, and
 /// sealing rather than a parallel fixture path.
 #[cfg(debug_assertions)]
-fn tenant_root_creation_probe_ceremony(
+async fn tenant_root_creation_probe_ceremony(
     env: &Env,
     role: CloudflareTenantRootDeriverRoleV1,
     authorization: TenantRootCreationProbeAuthorizationV1,
@@ -8276,6 +8276,7 @@ fn tenant_root_creation_probe_ceremony(
         now_ms,
         &mut rng,
     )
+    .await
     .map_err(|error| store_error(error.message()))?;
     let peer_commitment = match peer_progress {
         crate::tenant_root_role_runtime::TenantRootRoleCreationProgressV1::Committed {
@@ -8314,6 +8315,7 @@ fn tenant_root_creation_probe_ceremony(
         now_ms,
         &mut rng,
     )
+    .await
     .map_err(|error| store_error(error.message()))?;
     match progress {
         crate::tenant_root_role_runtime::TenantRootRoleCreationProgressV1::Sealed {
@@ -8368,7 +8370,8 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
         role,
         completed_authorization,
         reserved_at_ms - 2,
-    )?;
+    )
+    .await?;
     let role_signer = crate::env::cloudflare_tenant_root_creation_role_signer_for_probe_v1(
         tenant_root_creation_probe_protocol_role(role),
         tenant_root_role_d1_integration_role_signing_key_id(role),
@@ -8490,7 +8493,8 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
         ));
     }
     let changed =
-        tenant_root_creation_probe_ceremony(env, role, changed_authorization, reserved_at_ms - 2)?;
+        tenant_root_creation_probe_ceremony(env, role, changed_authorization, reserved_at_ms - 2)
+            .await?;
     match store
         .reserve_initial_creation_pending(changed.input, reserved_at_ms + 3)
         .await
@@ -8520,7 +8524,8 @@ async fn run_cloudflare_tenant_root_initial_creation_integration_v1(
         return Err(store_error("a fresh resume preflight was not executable"));
     }
     let resume =
-        tenant_root_creation_probe_ceremony(env, role, resume_authorization, reserved_at_ms - 2)?;
+        tenant_root_creation_probe_ceremony(env, role, resume_authorization, reserved_at_ms - 2)
+            .await?;
     match store
         .reserve_initial_creation_pending(resume.input, reserved_at_ms + 4)
         .await?

@@ -11,6 +11,7 @@ import {
   BACKEND_COMPONENTS,
   componentSecretNames,
   readBackendLane,
+  tenantRootManagedBackupConfig,
 } from './deployment-targets.mjs';
 import { readMigrationSet } from './migration-fingerprint.mjs';
 import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
@@ -548,8 +549,25 @@ function preflightBackend(lane, component, environment = process.env) {
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
   requireEnvironmentValues(unique(requiredNames), environment);
+  assertExternalManagedBackupProvider(lane, component, environment);
   if (component === 'gateway') warnDisabledGatewayIntegrations(environment);
   process.stdout.write(`Preflight passed: ${lane.id}/${component}\n`);
+}
+
+function assertExternalManagedBackupProvider(lane, component, environment) {
+  const role = {
+    'deriver-a': 'a',
+    'deriver-b': 'b',
+  }[component];
+  if (!role) return;
+  const config = tenantRootManagedBackupConfig(lane, role);
+  if (config.kind !== 'google_cloud_kms') return;
+  const providerId = requireEnvironmentValue(config.providerIdEnvironmentName, environment);
+  if (providerId !== config.expectedProviderId) {
+    throw new Error(
+      `${config.providerIdEnvironmentName} must be ${config.expectedProviderId} for ${lane.id}`,
+    );
+  }
 }
 
 function assertLaneResourceBindings(lane, component) {
@@ -786,41 +804,9 @@ function componentRuntimeRequirements(lane, component) {
         'SIGNING_WORKER_PRIVATE_D1_KEK_VERSION',
       ];
     case 'deriver-a':
-      return [
-        'DERIVER_A_PRIVATE_D1_ID',
-        'DERIVER_A_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
-        'DERIVER_A_ROLE_PRIVATE_D1_KEK_VERSION',
-        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
-        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
-        'DERIVER_A_PEER_VERIFYING_KEY_HEX',
-        'DERIVER_B_PEER_VERIFYING_KEY_HEX',
-        'DERIVER_A_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
-        'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
-        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
-        'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
-      ];
+      return deriverRuntimeRequirements(lane, 'a');
     case 'deriver-b':
-      return [
-        'DERIVER_B_PRIVATE_D1_ID',
-        'DERIVER_B_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY',
-        'DERIVER_B_ROLE_PRIVATE_D1_KEK_VERSION',
-        'DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY',
-        'DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY',
-        'DERIVER_A_PEER_VERIFYING_KEY_HEX',
-        'DERIVER_B_PEER_VERIFYING_KEY_HEX',
-        'DERIVER_B_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF',
-        'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID',
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION',
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
-        'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
-        'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
-        'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
-      ];
+      return deriverRuntimeRequirements(lane, 'b');
     case 'router':
       return [
         'ROUTER_AB_JWT_JWKS_JSON',
@@ -852,6 +838,29 @@ function componentRuntimeRequirements(lane, component) {
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
+}
+
+function deriverRuntimeRequirements(lane, role) {
+  const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
+  const peerPrefix = role === 'a' ? 'DERIVER_B' : 'DERIVER_A';
+  const managedBackup = tenantRootManagedBackupConfig(lane, role);
+  return [
+    `${prefix}_PRIVATE_D1_ID`,
+    `${prefix}_ROLE_PRIVATE_D1_KEK_PUBLIC_KEY`,
+    `${prefix}_ROLE_PRIVATE_D1_KEK_VERSION`,
+    `${prefix}_ENVELOPE_HPKE_PUBLIC_KEY`,
+    `${peerPrefix}_ENVELOPE_HPKE_PUBLIC_KEY`,
+    'DERIVER_A_PEER_VERIFYING_KEY_HEX',
+    'DERIVER_B_PEER_VERIFYING_KEY_HEX',
+    `${prefix}_TENANT_ROOT_ONLINE_EPOCH_WRAPPING_KEY_REF`,
+    `${prefix}_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY`,
+    managedBackup.providerIdEnvironmentName,
+    managedBackup.keyVersionEnvironmentName,
+    ...(managedBackup.kind === 'hpke' ? [managedBackup.publicEnvironmentName] : []),
+    'TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON',
+    `${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY_ID`,
+    'ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON',
+  ];
 }
 
 function migrateBackend(lane) {
@@ -897,7 +906,7 @@ function migrateBackend(lane) {
 
 function deployBackend(lane, component) {
   preflightBackend(lane, component);
-  validateDeploymentKeyPairs(component);
+  validateDeploymentKeyPairs(lane, component);
   switch (component) {
     case 'signing-worker':
       deploySigningWorker(lane);
@@ -928,7 +937,7 @@ function deployBackend(lane, component) {
   }
 }
 
-export function validateDeploymentKeyPairs(component, environment = process.env) {
+export function validateDeploymentKeyPairs(lane, component, environment = process.env) {
   switch (component) {
     case 'deriver-a':
       assertX25519KeyPair(
@@ -949,12 +958,7 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_A_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
         environment,
       );
-      assertX25519KeyPair(
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
-        'hpke-x25519-private-v1:',
-        'DERIVER_A_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
-        environment,
-      );
+      validateManagedBackupKeyPair(lane, 'a', environment);
       assertEd25519RoleKeySet(
         'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY',
         'DERIVER_A_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
@@ -982,12 +986,7 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
         'DERIVER_B_TENANT_ROOT_ONLINE_HPKE_PUBLIC_KEY',
         environment,
       );
-      assertX25519KeyPair(
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY',
-        'hpke-x25519-private-v1:',
-        'DERIVER_B_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY',
-        environment,
-      );
+      validateManagedBackupKeyPair(lane, 'b', environment);
       assertEd25519RoleKeySet(
         'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY',
         'DERIVER_B_TENANT_ROOT_CREATION_SIGNING_KEY_ID',
@@ -1026,6 +1025,17 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
+}
+
+function validateManagedBackupKeyPair(lane, role, environment) {
+  const config = tenantRootManagedBackupConfig(lane, role);
+  if (config.kind !== 'hpke') return;
+  assertX25519KeyPair(
+    config.privateSecretName,
+    'hpke-x25519-private-v1:',
+    config.publicEnvironmentName,
+    environment,
+  );
 }
 
 // Ed25519 seed (base64url, 32 bytes) must reproduce the verifying key that the
@@ -1246,12 +1256,18 @@ function deploySigningWorker(lane) {
 function deployDeriver(lane, role) {
   const resource = role === 'a' ? lane.resources.deriverA : lane.resources.deriverB;
   const prefix = role === 'a' ? 'DERIVER_A' : 'DERIVER_B';
+  const managedBackup = tenantRootManagedBackupConfig(lane, role);
   putWorkerSecret(resource, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
   putWorkerSecret(resource, `${prefix}_ENVELOPE_HPKE_PRIVATE_KEY`);
   putWorkerSecret(resource, `${prefix}_PEER_SIGNING_KEY`);
   putWorkerSecret(resource, `${prefix}_ROLE_PRIVATE_D1_KEK`);
   putWorkerSecret(resource, `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`);
-  putWorkerSecret(resource, `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`);
+  putWorkerSecret(
+    resource,
+    managedBackup.kind === 'hpke'
+      ? managedBackup.privateSecretName
+      : managedBackup.credentialsSecretName,
+  );
   putWorkerSecret(resource, `${prefix}_TENANT_ROOT_CREATION_SIGNING_KEY`);
   const component = `deriver-${role}`;
   const configPath = renderPrivateD1WorkerConfig(lane, resource, component);
@@ -1279,13 +1295,9 @@ function deployDeriver(lane, role) {
     '--var',
     `${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_ONLINE_HPKE_PRIVATE_KEY`,
     '--var',
-    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_PROVIDER_ID`)}`,
+    `${managedBackup.providerIdEnvironmentName}:${requireEnvironmentValue(managedBackup.providerIdEnvironmentName)}`,
     '--var',
-    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_KEY_VERSION`)}`,
-    '--var',
-    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY:${requireEnvironmentValue(`${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PUBLIC_KEY`)}`,
-    '--var',
-    `${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY_BINDING:${prefix}_TENANT_ROOT_MANAGED_BACKUP_HPKE_PRIVATE_KEY`,
+    `${managedBackup.keyVersionEnvironmentName}:${requireEnvironmentValue(managedBackup.keyVersionEnvironmentName)}`,
     '--var',
     `TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON:${requireEnvironmentValue('TENANT_ROOT_CONTROL_PLANE_ISSUER_VERIFYING_KEYS_JSON')}`,
     '--var',
@@ -1295,6 +1307,19 @@ function deployDeriver(lane, role) {
     '--var',
     `ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON:${requireEnvironmentValue('ROUTER_TENANT_ROOT_CREATION_ROLE_VERIFYING_KEYS_JSON')}`,
   );
+  if (managedBackup.kind === 'hpke') {
+    args.push(
+      '--var',
+      `${managedBackup.publicEnvironmentName}:${requireEnvironmentValue(managedBackup.publicEnvironmentName)}`,
+      '--var',
+      `${managedBackup.privateBindingEnvironmentName}:${managedBackup.privateSecretName}`,
+    );
+  } else {
+    args.push(
+      '--var',
+      `${managedBackup.credentialsBindingEnvironmentName}:${managedBackup.credentialsSecretName}`,
+    );
+  }
   runRouterCommand(args);
 }
 
