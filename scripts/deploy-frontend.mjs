@@ -23,7 +23,8 @@ const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: [
     '/',
-    { path: '/dashboard/', isReady: consoleApplicationIsReady },
+    { path: '/dashboard', isReady: consoleApplicationIsReady },
+    { path: '/dashboard/', isReady: consoleHtmlIsReady },
     { path: '/dashboard/login', isReady: consoleHtmlIsReady },
     { path: '/platform/billing', isReady: consoleHtmlIsReady },
     '/sdk/workers/near-signer.worker.js',
