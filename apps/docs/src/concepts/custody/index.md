@@ -29,6 +29,21 @@ shares and presignature state; it does not reconstruct the full private key.
 
 ## Custody invariants
 
+### Tenant derivation roots
+
+R120 gives each tenant an independently randomized server-side derivation root.
+Deriver A and B each retain only their own encrypted operational share in a
+role-private D1 store, with a separately encrypted managed backup in that role's
+R2 bucket. Router coordinates public lifecycle state and receipts.
+
+These tenant-root shares support derivation ceremonies. Wallet custody seeds,
+client signing roots, and provisioned holder/SigningWorker signing shares have
+separate custody paths. Refreshing the tenant-root shares preserves the root
+and wallet identities; it does not replace a wallet custody seed or rekey a
+wallet. See [tenant-root backups](/deploy-and-operate/tenant-root-backups).
+
+### Signing and authorization
+
 1. Router cannot sign by itself.
 2. A single Deriver cannot derive the full server contribution by itself.
 3. SigningWorker cannot export wallet keys.
@@ -40,8 +55,15 @@ shares and presignature state; it does not reconstruct the full private key.
 
 Users can recover through the auth methods and recovery material configured for
 their wallet. Export is a sensitive operation with fresh authorization, route
-policy, and exact lane binding. Self-hosting or migration depends on
-signing-root custody and export ceremonies.
+policy, and exact lane binding.
+
+R121's planned tenant-controlled recovery restores the exact logical tenant
+root into an empty destination with a fresh custody lineage. R122's planned
+portability moves wallet inventory and signing participants, with explicit
+identity mapping and cutover. Restoring a tenant root alone does not move wallet
+records, signing lanes, domains, or permissions. See
+[recovery and portability](/deploy-and-operate/recovery-and-portability) for
+availability and artifact boundaries.
 
 Read next:
 

@@ -136,10 +136,16 @@ Rotation covers several operations with different security effects:
 | Operation               | Typical result                                                                                |
 | ----------------------- | --------------------------------------------------------------------------------------------- |
 | Envelope rewrap         | The same plaintext share is protected under new encryption.                                   |
+| Tenant-root refresh     | Deriver A/B operational shares and epoch change while the tenant derivation root, wallet keys, and addresses remain stable. |
 | Server custody rotation | The same effective server contribution moves to a new custody envelope or role configuration. |
 | Lane share refresh      | Holder and server lane shares change while the wallet address stays stable.                   |
 | Delegated lane creation | A device, agent, or service receives a bounded lane under policy.                             |
 | Wallet rekey            | The wallet key changes, usually changing the address.                                         |
+
+Tenant-root refresh is separate from refreshing one signing lane or rotating
+the KMS wrapping key. See [key rotation](/concepts/delegation/key-rotation) for
+the lifecycle boundaries and [tenant-root backups](/deploy-and-operate/tenant-root-backups)
+for storage and erasure limits.
 
 Delegated devices and agents receive lane-scoped signing authority. They do not
 receive the wallet private key, recovery authority, export authority, or broad

@@ -155,12 +155,10 @@ const AppRuntimeBoundary: React.FC = () => {
     );
   }
 
-  const sdkNetwork = 'testnet';
-
   return (
     <FrontendSdkProvider
       eager
-      network={sdkNetwork}
+      network={runtime.selectedNetwork}
       appearance={SITE_APPEARANCE}
       theme={{ theme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
     >

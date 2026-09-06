@@ -54,7 +54,13 @@ type RouterTenantRootRefreshResponseV1 = {
   readonly lifecycleRevision: number;
 };
 
+type RouterTenantRootRefreshResultV1 =
+  | { readonly kind: 'completed'; readonly value: RouterTenantRootRefreshResponseV1 }
+  | { readonly kind: 'throttled'; readonly retryAtMs: number }
+  | { readonly kind: 'in_progress' };
+
 export type TenantRootRefreshRouterRequestV1 = {
+  readonly operation_id: string;
   readonly identity_digest_b64u: string;
   readonly custody_lineage_b64u: string;
 };
@@ -256,10 +262,12 @@ async function createAtRouter(
 
 async function refreshAtRouter(
   dependencies: TenantRootRefreshConsoleRouteDependenciesV1,
+  operationId: string,
   identityDigestB64u: string,
   custodyLineageB64u: string,
-): Promise<RouterTenantRootRefreshResponseV1> {
+): Promise<RouterTenantRootRefreshResultV1> {
   const routerRequest: TenantRootRefreshRouterRequestV1 = {
+    operation_id: operationId,
     identity_digest_b64u: identityDigestB64u,
     custody_lineage_b64u: custodyLineageB64u,
   };
@@ -278,6 +286,30 @@ async function refreshAtRouter(
     },
   );
   const body: unknown = await response.json().catch(() => null);
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    if (
+      response.status === 429 &&
+      'code' in body &&
+      body.code === 'tenant_root_refresh_throttled'
+    ) {
+      if (
+        !('retry_at_ms' in body) ||
+        typeof body.retry_at_ms !== 'number' ||
+        !Number.isSafeInteger(body.retry_at_ms) ||
+        body.retry_at_ms <= 0
+      ) {
+        throw new Error('Router returned an invalid refresh retry time');
+      }
+      return { kind: 'throttled', retryAtMs: body.retry_at_ms };
+    }
+    if (
+      response.status === 409 &&
+      'code' in body &&
+      body.code === 'tenant_root_refresh_in_progress'
+    ) {
+      return { kind: 'in_progress' };
+    }
+  }
   if (!response.ok) {
     const message =
       body && typeof body === 'object' && !Array.isArray(body)
@@ -285,7 +317,47 @@ async function refreshAtRouter(
         : response.statusText;
     throw new Error(`Router tenant-root refresh failed (HTTP ${response.status}): ${message}`);
   }
-  return parseRouterTenantRootRefreshResponse(body);
+  return { kind: 'completed', value: parseRouterTenantRootRefreshResponse(body) };
+}
+
+function refreshConsoleResponse(result: RouterTenantRootRefreshResultV1): Response {
+  switch (result.kind) {
+    case 'completed':
+      return json({
+        ok: true,
+        status: 'ACTIVE',
+        activationReceiptDigestB64u: result.value.activationReceiptDigestB64u,
+        lifecycleRevision: result.value.lifecycleRevision,
+      });
+    case 'throttled': {
+      const response = json(
+        {
+          ok: false,
+          code: 'tenant_root_refresh_throttled',
+          message: 'Tenant secrets can be refreshed once per hour.',
+          retryAtMs: result.retryAtMs,
+        },
+        429,
+      );
+      response.headers.set('Retry-After', new Date(result.retryAtMs).toUTCString());
+      return response;
+    }
+    case 'in_progress':
+      return json(
+        {
+          ok: false,
+          code: 'tenant_root_refresh_in_progress',
+          message: 'A tenant secret refresh is already in progress.',
+        },
+        409,
+      );
+    default:
+      return assertNeverRefreshResult(result);
+  }
+}
+
+function assertNeverRefreshResult(value: never): never {
+  throw new Error(`Unexpected refresh result: ${String(value)}`);
 }
 
 export function createTenantRootCreationConsoleRouteV1(
@@ -379,8 +451,9 @@ export function createTenantRootRefreshConsoleRouteV1(
     });
     if (!authorization.ok) return json(authorization.body, authorization.status);
 
+    let operationId: string;
     try {
-      await parseOperationId(request);
+      operationId = await parseOperationId(request);
     } catch (error: unknown) {
       return json(
         {
@@ -411,15 +484,11 @@ export function createTenantRootRefreshConsoleRouteV1(
       }
       const refreshed = await refreshAtRouter(
         dependencies,
+        operationId,
         identityDigestB64u,
         active.custodyLineageB64u,
       );
-      return json({
-        ok: true,
-        status: 'ACTIVE',
-        activationReceiptDigestB64u: refreshed.activationReceiptDigestB64u,
-        lifecycleRevision: refreshed.lifecycleRevision,
-      });
+      return refreshConsoleResponse(refreshed);
     } catch (error: unknown) {
       if (isTenantRootCreationGrantStoreError(error)) {
         return json({ ok: false, code: error.code, message: error.message }, error.statusCode);

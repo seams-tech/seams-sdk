@@ -61,6 +61,18 @@ Small teams can test the model without standing up bespoke infrastructure.
 Larger deployments can add private bindings, isolated workers, dedicated
 storage, TEEs, and stricter release controls around the same protocol shape.
 
+Deployable runtime artifacts and development examples are available separately
+from the planned production portability product. R122 will add the customer
+deployment compiler, wallet import, continuity verification, and explicit
+cutover. A development deployment does not establish those migration guarantees
+or independent A/B administrative isolation.
+
+R120's managed tenant-root backups also do not constitute a portable wallet
+inventory. R121 first adds tenant-controlled recovery of the exact root;
+R122 owns wallet/deployment migration. See
+[recovery and portability](/deploy-and-operate/recovery-and-portability) for
+current availability.
+
 Read next:
 
 - [Threshold Signing](/concepts/threshold-signing/)
